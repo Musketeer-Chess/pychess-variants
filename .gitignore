@@ -19,3 +19,4 @@ yarn.lock
 *.txt
 *.mo
 .env
+*.DS_Store
