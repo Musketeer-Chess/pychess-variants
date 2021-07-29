@@ -20,13 +20,11 @@ import { chatMessage, chatView } from './chat';
 import { validFen, VARIANTS, selectVariant, IVariant } from './chess';
 import { sound } from './sound';
 import { boardSettings } from './boardSettings';
-import { debounce } from './document';
 import { timeControlStr } from './view';
 import { notify } from './notification';
 
 
 class LobbyController {
-    test_ratings: boolean;
     model;
     sock;
     player;
@@ -36,6 +34,7 @@ class LobbyController {
     validGameData: boolean;
     _ws;
     seeks;
+    spotlights;
     minutesValues = [
         0, 1 / 4, 1 / 2, 3 / 4, 1, 3 / 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
         17, 18, 19, 20, 25, 30, 35, 40, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180
@@ -48,14 +47,12 @@ class LobbyController {
 
     constructor(el, model) {
         console.log("LobbyController constructor", el, model);
-        // enable for local testong only !!!
-        // this.test_ratings = true;
-        this.test_ratings = false;
 
         this.model = model;
         this.challengeAI = false;
         this.inviteFriend = false;
         this.validGameData = false;
+        this.seeks = [];
 
         const onOpen = (evt) => {
             this._ws = evt.target;
@@ -71,8 +68,6 @@ class LobbyController {
             }
             this.doSend({ type: "lobby_user_connected", username: this.model["username"]});
             this.doSend({ type: "get_seeks" });
-
-            window.addEventListener("resize", debounce(resizeSeeksHeader, 10));
         }
 
         this._ws = { "readyState": -1 };
@@ -95,6 +90,8 @@ class LobbyController {
         }
         patch(document.getElementById('seekbuttons') as HTMLElement, h('div#seekbuttons', this.renderSeekButtons()));
         patch(document.getElementById('lobbychat') as HTMLElement, chatView(this, "lobbychat"));
+
+        this.spotlights = document.getElementById('spotlights') as HTMLElement;
 
         // challenge!
         const anon = this.model.anon === 'True';
@@ -226,7 +223,13 @@ class LobbyController {
 
         e = document.querySelector('input[name="mode"]:checked') as HTMLInputElement;
         let rated: boolean;
-        if (!this.test_ratings && (this.challengeAI || this.inviteFriend || this.model.anon === "True" || this.model.title === "BOT" || fen !== ""))
+        if (this.challengeAI ||
+            this.model.anon === "True" ||
+            this.model.title === "BOT" ||
+            fen !== "" ||
+            (minutes < 1 && increment === 0) ||
+            (minutes === 0 && increment === 1)
+            )
             rated = false;
         else
             rated = e.value === "1";
@@ -334,9 +337,19 @@ class LobbyController {
                         ]),
                         h('form#game-mode', [
                             h('div.radio-group', [
-                                h('input#casual', { props: { type: "radio", name: "mode", value: "0" }, attrs: { checked: vRated === "0" }, }),
+                                h('input#casual', {
+                                    props: { type: "radio", name: "mode", value: "0" },
+                                    attrs: { checked: vRated === "0" }, 
+                                    on: { input: e => this.setCasual((e.target as HTMLInputElement).value) },
+                                    hook: { insert: vnode => this.setCasual((vnode.elm as HTMLInputElement).value) },
+                                }),
                                 h('label', { attrs: { for: "casual"} }, _("Casual")),
-                                h('input#rated', { props: { type: "radio", name: "mode", value: "1" }, attrs: { checked: vRated === "1" }, }),
+                                h('input#rated', {
+                                    props: { type: "radio", name: "mode", value: "1" },
+                                    attrs: { checked: vRated === "1" },
+                                    on: { input: e => this.setRated((e.target as HTMLInputElement).value) },
+                                    hook: { insert: vnode => this.setRated((vnode.elm as HTMLInputElement).value) },
+                                }),
                                 h('label', { attrs: { for: "rated"} }, _("Rated")),
                             ]),
                         ]),
@@ -392,7 +405,7 @@ class LobbyController {
                     click: () => {
                         this.challengeAI = true;
                         this.inviteFriend = false;
-                        document.getElementById('game-mode')!.style.display = (!this.test_ratings || anon) ? 'none' : 'inline-flex';
+                        document.getElementById('game-mode')!.style.display = (anon) ? 'none' : 'inline-flex';
                         document.getElementById('challenge-block')!.style.display = 'none';
                         document.getElementById('ailevel')!.style.display = 'inline-block';
                         document.getElementById('id01')!.style.display = 'block';
@@ -455,6 +468,14 @@ class LobbyController {
         e.setCustomValidity(this.validateFen() ? '' : _('Invalid FEN'));
         this.setStartButtons();
     }
+    private setCasual(casual) {
+        console.log("setCasual", casual);
+        this.setStartButtons();
+    }
+    private setRated(rated) {
+        console.log("setRated", rated);
+        this.setStartButtons();
+    }
     private setStartButtons() {
         this.validGameData = this.validateTimeControl() && this.validateFen();
         const e = document.getElementById('color-button-group') as HTMLElement;
@@ -463,7 +484,15 @@ class LobbyController {
     private validateTimeControl() {
         const min = Number((document.getElementById('min') as HTMLInputElement).value);
         const inc = Number((document.getElementById('inc') as HTMLInputElement).value);
-        return min + inc > ((this.challengeAI) ? 4 : 0);
+        const minutes = this.minutesValues[min];
+
+        const e = document.querySelector('input[name="mode"]:checked') as HTMLInputElement;
+        const rated = e.value === "1";
+
+        const atLeast = (this.challengeAI) ? 4 : min + inc > 0;
+        const tooFast = (minutes < 1 && inc === 0) || (minutes === 0 && inc === 1);
+
+        return atLeast && !(tooFast && rated);
     }
     private validateFen() {
         const e = document.getElementById('variant') as HTMLSelectElement;
@@ -552,6 +581,23 @@ class LobbyController {
             return _("Casual");
     }
 
+    private spotlightView(spotlight) {
+        const variant = VARIANTS[spotlight.variant];
+        const chess960 = spotlight.chess960;
+        const dataIcon = variant.icon(chess960);
+
+        return h('a.tour-spotlight', { attrs: { "href": "/tournament/" + spotlight.tid } }, [
+            h('i.icon', { attrs: { "data-icon": dataIcon } }),
+            h('span.content', [
+                h('span.name', spotlight.name),
+                h('span.more', [
+                    h('nb', spotlight.nbPlayers + ' players • '),
+                    h('info-date', { attrs: { "timestamp": spotlight.startsAt } } )
+                ])
+            ])
+        ]);
+    }
+
     onMessage(evt) {
         // console.log("<+++ lobby onMessage():", evt.data);
         const msg = JSON.parse(evt.data);
@@ -582,6 +628,9 @@ class LobbyController {
                 break;
             case "u_cnt":
                 this.onMsgUserCounter(msg);
+                break;
+            case "spotlights":
+                this.onMsgSpotlights(msg);
                 break;
             case "invite_created":
                 this.onMsgInviteCreated(msg);
@@ -623,8 +672,9 @@ class LobbyController {
     }
     private onMsgChat(msg) {
         chatMessage(msg.user, msg.message, "lobbychat");
-        if (msg.user.length !== 0 && msg.user !== '_server')
-            sound.socialNotify();
+        // seems this is annoying for most of the users
+        //if (msg.user.length !== 0 && msg.user !== '_server')
+        //    sound.socialNotify();
     }
     private onMsgFullChat(msg) {
         // To prevent multiplication of messages we have to remove old messages div first
@@ -653,7 +703,9 @@ class LobbyController {
         const userCount = document.getElementById('u_cnt') as HTMLElement;
         patch(userCount as HTMLElement, h('counter#u_cnt', ngettext('%1 player', '%1 players', msg.cnt)));
     }
-
+    private onMsgSpotlights(msg) {
+        this.spotlights = patch(this.spotlights, h('div#spotlights', msg.items.map(spotlight => this.spotlightView(spotlight))));
+    }
 }
 
 function seekHeader() {
@@ -701,10 +753,12 @@ export function lobbyView(model): VNode[] {
     }
 
     return [
-        h('aside.sidebar-first', [ h('div#lobbychat') ]),
+        h('aside.sidebar-first', [
+            h('div#spotlights'),
+            h('div#lobbychat')
+        ]),
         h('div.seeks', [
             h('div#seeks-table', [
-                h('table#seeks-header', { hook: { insert: () => resizeSeeksHeader() } }, seekHeader()),
                 h('div#seeks-wrapper', h('table#seeks', { hook: { insert: vnode => runSeeks(vnode, model) } })),
             ]),
         ]),
@@ -773,10 +827,4 @@ export function lobbyView(model): VNode[] {
             h('a', { attrs: { href: '/games' } }, [ h('counter#g_cnt') ]),
         ]),
     ];
-}
-
-function resizeSeeksHeader() {
-    const seeksHeader = document.getElementById('seeks-header') as HTMLElement;
-    const seeks = document.getElementById('seeks') as HTMLElement;
-    seeksHeader.style.width = seeks.clientWidth + 'px';
 }

@@ -94,6 +94,7 @@ export function roundView(model): VNode[] {
                 ]),
                 h('div#misc-info0'),
             ]),
+            h('div#expiration-top'),
             h('round-player0#rplayer0'),
             h('div#move-controls'),
             h('div.movelist-block', [
@@ -101,6 +102,7 @@ export function roundView(model): VNode[] {
             ]),
             h('div#game-controls'),
             h('round-player1#rplayer1'),
+            h('div#expiration-bottom'),
             h('div.info-wrap1', [
                 h('div#clock1'),
                 h('div#misc-info1'),

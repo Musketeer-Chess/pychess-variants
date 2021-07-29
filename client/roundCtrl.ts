@@ -32,6 +32,7 @@ import { notify } from './notification';
 
 const patch = init([klass, attributes, properties, listeners]);
 
+let rang = false;
 
 export default class RoundController {
     model;
@@ -49,7 +50,11 @@ export default class RoundController {
     turnColor: Color;
     clocks: [Clock, Clock];
     clocktimes;
-    abortable: boolean;
+    expirations: [VNode | HTMLElement, VNode | HTMLElement];
+    expiStart: number;
+    firstmovetime: number;
+    tournamentGame: boolean;
+    clockOn: boolean;
     gameId: string;
     variant: IVariant;
     chess960: boolean;
@@ -88,8 +93,8 @@ export default class RoundController {
     players: string[];
     titles: string[];
     ratings: string[];
-    clickDrop: Piece | undefined;
-    clickDropEnabled: boolean;
+//    clickDrop: Piece | undefined;
+//    clickDropEnabled: boolean;
     animation: boolean;
     showDests: boolean;
     blindfold: boolean;
@@ -153,7 +158,7 @@ export default class RoundController {
 
         this.flip = false;
         this.settings = true;
-        this.clickDropEnabled = true;
+//        this.clickDropEnabled = true;
         this.animation = localStorage.animation === undefined ? true : localStorage.animation === "true";
         this.showDests = localStorage.showDests === undefined ? true : localStorage.showDests === "true";
         this.blindfold = localStorage.blindfold === undefined ? false : localStorage.blindfold === "true";
@@ -194,7 +199,8 @@ export default class RoundController {
 
         this.result = "*";
         const parts = this.fullfen.split(" ");
-        this.abortable = Number(parts[parts.length - 1]) <= 1;
+        this.tournamentGame = this.model["tournamentId"] !== '';
+        this.clockOn = (Number(parts[parts.length - 1]) >= 2);
 
         var fen_placement = parts[0];
         if(this.hasCommittedGates){
@@ -289,6 +295,11 @@ export default class RoundController {
             const gate1 = document.getElementById('gate1') as HTMLElement;
             updateCommittedGates(this, gate0, gate1);
         }
+        // initialize expirations
+        this.expirations = [
+            document.getElementById('expiration-top') as HTMLElement,
+            document.getElementById('expiration-bottom') as HTMLElement
+        ];
 
         // initialize clocks
         this.clocktimes = {};
@@ -443,6 +454,12 @@ export default class RoundController {
         const side = (msg.color === 'white') ? _('Blue (Cho)') : _('Red (Han)');
         const message = _('Waiting for %1 to choose starting positions of the horses and elephants...', side);
 
+        this.expiStart = 0;
+        this.renderExpiration();
+        this.turnColor = msg.color;
+        this.expiStart = Date.now();
+        setTimeout(this.showExpiration, 350);
+
         if (this.spectator || msg.color !== this.mycolor) {
             chatMessage('', message, "roundchat");
             return;
@@ -513,20 +530,42 @@ export default class RoundController {
         window.location.assign(home + '/' + this.gameId + '?ply=' + this.ply.toString());
     }
 
+    private joinTournament = () => {
+        window.location.assign(this.model["home"] + '/tournament/' + this.model["tournamentId"]);
+    }
+
+    private pauseTournament = () => {
+        window.location.assign(this.model["home"] + '/tournament/' + this.model["tournamentId"] + '/pause');
+    }
+
     private gameOver = (rdiffs) => {
         let container;
         container = document.getElementById('wrdiff') as HTMLElement;
-        patch(container, renderRdiff(rdiffs["wrdiff"]));
+        if (container) patch(container, renderRdiff(rdiffs["wrdiff"]));
 
         container = document.getElementById('brdiff') as HTMLElement;
-        patch(container, renderRdiff(rdiffs["brdiff"]));
+        if (container) patch(container, renderRdiff(rdiffs["brdiff"]));
 
         // console.log(rdiffs)
         this.gameControls = patch(this.gameControls, h('div'));
         let buttons: VNode[] = [];
         if (!this.spectator) {
-            buttons.push(h('button.rematch', { on: { click: () => this.rematch() } }, _("REMATCH")));
-            buttons.push(h('button.newopp', { on: { click: () => this.newOpponent(this.model["home"]) } }, _("NEW OPPONENT")));
+            if (this.tournamentGame) {
+                // TODO: isOver = ?
+                const isOver = false;
+                if (isOver) {
+                    buttons.push(h('button.newopp', { on: { click: () => this.joinTournament() } },
+                        [h('div', {class: {"icon": true, 'icon-play3': true} }, _("VIEW TOURNAMENT"))]));
+                } else{
+                    buttons.push(h('button.newopp', { on: { click: () => this.joinTournament() } },
+                        [h('div', {class: {"icon": true, 'icon-play3': true} }, _("BACK TO TOURNAMENT"))]));
+                    buttons.push(h('button.newopp', { on: { click: () => this.pauseTournament() } },
+                        [h('div', {class: {"icon": true, 'icon-pause2': true} }, _("PAUSE"))]));
+                }
+            } else {
+                buttons.push(h('button.rematch', { on: { click: () => this.rematch() } }, _("REMATCH")));
+                buttons.push(h('button.newopp', { on: { click: () => this.newOpponent(this.model["home"]) } }, _("NEW OPPONENT")));
+            }
         }
         buttons.push(h('button.analysis', { on: { click: () => this.analysis(this.model["home"]) } }, _("ANALYSIS BOARD")));
         patch(this.gameControls, h('div.btn-controls.after', buttons));
@@ -540,14 +579,16 @@ export default class RoundController {
             this.clocks[0].pause(false);
             this.clocks[1].pause(false);
             this.dests = {};
-            if (this.result === "*" && !this.spectator)
+
+            if (this.result !== "*" && !this.spectator)
                 sound.gameEndSound(msg.result, this.mycolor);
+
             this.gameOver(msg.rdiffs);
             selectMove(this, this.ply);
 
             updateResult(this);
 
-            if (msg.ct !== "") {
+            if (msg.ct) {
                 this.ctableContainer = patch(this.ctableContainer, h('div#ctable-container'));
                 this.ctableContainer = patch(this.ctableContainer, crosstableView(msg.ct, this.gameId));
             }
@@ -582,6 +623,20 @@ export default class RoundController {
         // console.log("got board msg:", msg);
         const latestPly = (this.ply === -1 || msg.ply === this.ply + 1);
         if (latestPly) this.ply = msg.ply;
+
+        if (this.ply === 0 && this.variant.name !== 'janggi') {
+            this.expiStart = Date.now();
+            setTimeout(this.showExpiration, 350);
+        }
+
+        if (this.ply === 1 || this.ply === 2) {
+            this.expiStart = 0;
+            this.renderExpiration();
+            if (this.ply === 1) {
+                this.expiStart = Date.now();
+                setTimeout(this.showExpiration, 350);
+            }
+        }
 
         this.fullfen = msg.fen;
 
@@ -653,10 +708,10 @@ export default class RoundController {
             }
         }
 
-        this.abortable = Number(msg.ply) <= 1;
-        if (!this.spectator && !this.abortable && this.result === "*") {
+        this.clockOn = Number(msg.ply) >= 2;
+        if ((!this.spectator && this.clockOn) || this.tournamentGame) {
             const container = document.getElementById('abort') as HTMLElement;
-            patch(container, h('button#abort', { props: {disabled: true} }));
+            if (container) patch(container, h('div'));
         }
 
         let lastMove = msg.lastMove;
@@ -714,7 +769,7 @@ export default class RoundController {
                 });
                 if (pocketsChanged) updatePockets(this, this.vpocket0, this.vpocket1);
             }
-            if (!this.abortable && msg.status < 0) {
+            if (this.clockOn && msg.status < 0) {
                 if (this.turnColor === this.mycolor) {
                     this.clocks[myclock].start();
                 } else {
@@ -744,7 +799,7 @@ export default class RoundController {
                     if (this.premove) this.performPremove();
                     if (this.predrop) this.performPredrop();
                 }
-                if (!this.abortable && msg.status < 0) {
+                if (this.clockOn && msg.status < 0) {
                     this.clocks[myclock].start();
                     // console.log('MY CLOCK STARTED');
                 }
@@ -755,7 +810,7 @@ export default class RoundController {
                     turnColor: this.turnColor,
                     check: msg.check,
                 });
-                if (!this.abortable && msg.status < 0) {
+                if (this.clockOn && msg.status < 0) {
                     this.clocks[oppclock].start();
                     // console.log('OPP CLOCK  STARTED');
                 }
@@ -765,6 +820,7 @@ export default class RoundController {
 
     goPly = (ply) => {
         const step = this.steps[ply];
+        if (step === undefined) return;
         let move = step['move'];
         let capture = false;
         if (move !== undefined) {
@@ -835,7 +891,7 @@ export default class RoundController {
 
         this.doSend({ type: "move", gameId: this.gameId, move: move, clocks: clocks, ply: this.ply + 1 });
 
-        if (!this.abortable) this.clocks[oppclock].start();
+        if (this.clockOn) this.clocks[oppclock].start();
     }
 
     private startCount = () => {
@@ -878,8 +934,8 @@ export default class RoundController {
             // console.log("ground.onDrop()", piece, dest);
             if (dest != 'a0' && piece.role && dropIsValid(this.dests, piece.role, dest)) {
                 sound.moveSound(this.variant, false);
-            } else if (this.clickDropEnabled) {
-                this.clickDrop = piece;
+//            } else if (this.clickDropEnabled) {
+//                this.clickDrop = piece;
             }
         }
     }
@@ -988,7 +1044,7 @@ export default class RoundController {
         } else {
             // console.log("!!! invalid move !!!", role, dest);
             // restore board
-            this.clickDrop = undefined;
+//            this.clickDrop = undefined;
             this.chessground.set({
                 fen: this.fullfen,
                 lastMove: this.lastmove,
@@ -1008,6 +1064,8 @@ export default class RoundController {
         return (key) => {
             if (this.chessground.state.movable.dests === undefined) return;
 
+/* Removed to fix https://github.com/gbtami/pychess-variants/issues/549
+
             // If drop selection was set dropDests we have to restore dests here
             if (key != 'a0' && 'a0' in this.chessground.state.movable.dests) {
                 if (this.clickDropEnabled && this.clickDrop !== undefined && dropIsValid(this.dests, this.clickDrop.role, key)) {
@@ -1018,6 +1076,7 @@ export default class RoundController {
                 //cancelDropMode(this.chessground.state);
                 this.chessground.set({ movable: { dests: this.dests }});
             }
+*/
 
             // Save state.pieces to help recognise 960 castling (king takes rook) moves
             // Shouldn't this be implemented in chessground instead?
@@ -1047,6 +1106,36 @@ export default class RoundController {
         }
     }
 
+    private renderExpiration = () => {
+        if (this.spectator) return;
+        let position = (this.turnColor === this.mycolor) ? "bottom": "top";
+        if (this.flip) position = (position === "top") ? "bottom" : "top";
+        let expi = (position === 'top') ? 0 : 1;
+        const timeLeft = Math.max(0, this.expiStart - Date.now() + this.firstmovetime );
+        // console.log("renderExpiration()", position, timeLeft);
+        if (timeLeft === 0 || this.status >= 0) {
+            this.expirations[expi] = patch(this.expirations[expi], h('div#expiration-' + position));
+        } else {
+            const emerg = (this.turnColor === this.mycolor && timeLeft < 8000);
+            if (!rang && emerg) {
+                sound.lowTime();
+                rang = true;
+            }
+            this.expirations[expi] = patch(this.expirations[expi], h('div#expiration-' + position + '.expiration',
+                {class:
+                    {emerg, 'bar-glider': this.turnColor === this.mycolor}
+                },
+                [h('strong', Math.floor(timeLeft / 1000)), 'seconds to play the first move']
+            ));
+        }
+    }
+
+    private showExpiration = () => {
+        if (this.expiStart === 0 || this.spectator) return;
+        this.renderExpiration();
+        setTimeout(this.showExpiration, 250);
+    }
+
     private onMsgUserConnected = (msg) => {
         this.model["username"] = msg["username"];
         if (this.spectator) {
@@ -1056,6 +1145,8 @@ export default class RoundController {
             // we want to know lastMove and check status
             this.doSend({ type: "board", gameId: this.gameId });
         } else {
+            this.firstmovetime = msg.firstmovetime;
+
             const opp_name = this.model["username"] === this.wplayer ? this.bplayer : this.wplayer;
             this.doSend({ type: "is_user_present", username: opp_name, gameId: this.gameId });
 

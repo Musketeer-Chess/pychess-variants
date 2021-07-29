@@ -51,6 +51,8 @@ export const PIECE_FAMILIES: { [key: string]: PieceFamily } = {
     hoppel: { pieceCSS: ["hoppel0", "hoppel1", "hoppel2"] },
     musketeer: {pieceCSS: ["musketeer0"]},
     shinobi: { pieceCSS: ["shinobi0"] },
+    empire: { pieceCSS: ["empire0"] },
+    ordamirror: { pieceCSS: ["ordamirror0"] },
 };
 
 type MandatoryPromotionPredicate = (role: Role, orig: Key, dest: Key, color: Color) => boolean;
@@ -216,8 +218,8 @@ export const VARIANTS: { [name: string]: IVariant } = {
         enPassant: true, autoQueenable: true,
         alternateStart: {
             '': '',
-            'PawnsPushed': "rnbqkbnr/8/8/pppppppp/PPPPPPPP/8/8/RNBQKBNR w - - 0 1",
-            'PawnsPassed': "rnbqkbnr/8/8/PPPPPPPP/pppppppp/8/8/RNBQKBNR w - - 0 1",
+            'PawnsPushed': "rnbqkbnr/8/8/pppppppp/PPPPPPPP/8/8/RNBQKBNR w KQkq - 0 1",
+            'PawnsPassed': "rnbqkbnr/8/8/PPPPPPPP/pppppppp/8/8/RNBQKBNR w KQkq - 0 1",
             'UpsideDown': "RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr w - - 0 1",
             'Theban': "1p6/2p3kn/3p2pp/4pppp/5ppp/8/PPPPPPPP/PPPPPPKN w - - 0 1",
             'No castle': 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1'
@@ -444,7 +446,8 @@ export const VARIANTS: { [name: string]: IVariant } = {
             'Bird': 'rnbcqkabnr/pppppppppp/10/10/10/10/PPPPPPPPPP/RNBCQKABNR w KQkq - 0 1',
             'Carrera': 'rcnbqkbnar/pppppppppp/10/10/10/10/PPPPPPPPPP/RCNBQKBNAR w KQkq - 0 1',
             'Gothic': 'rnbqckabnr/pppppppppp/10/10/10/10/PPPPPPPPPP/RNBQCKABNR w KQkq - 0 1',
-            'Embassy': 'rnbqkcabnr/pppppppppp/10/10/10/10/PPPPPPPPPP/RNBQKCABNR w KQkq - 0 1'
+            'Embassy': 'rnbqkcabnr/pppppppppp/10/10/10/10/PPPPPPPPPP/RNBQKCABNR w KQkq - 0 1',
+            'Conservative': 'arnbqkbnrc/pppppppppp/10/10/10/10/PPPPPPPPPP/ARNBQKBNRC w KQkq - 0 1'
         },
         chess960: true, icon: "P", icon960: ",",
     }),
@@ -575,6 +578,26 @@ export const VARIANTS: { [name: string]: IVariant } = {
         icon: "🐢",
     }),
 
+    empire: new Variant({
+        name: "empire", tooltip: () => _("Asymmetric variant where one army has pieces that move like queens but capturing (almost) as usual"),
+        startFen: "rnbqkbnr/pppppppp/8/8/8/PPPSSPPP/8/TECDKCET w kq - 0 1",
+        board: "standard8x8", piece: "empire",
+        firstColor: "Gold", secondColor: "Black",
+        pieceRoles: ["k", "d", "t", "c", "e", "p", "s", "q"],
+        pieceRoles2: ["k", "q", "r", "b", "n", "p"],
+        enPassant: true,
+        icon: "♚",
+    }),
+
+    ordamirror: new Variant({
+        name: "ordamirror", displayName: "orda mirror", tooltip: () => _("Pieces move generally like a knight, and capture differently"),
+        startFen: "lhafkahl/8/pppppppp/8/8/PPPPPPPP/8/LHAFKAHL w - - 0 1",
+        board: "standard8x8", piece: "ordamirror",
+        firstColor: "White", secondColor: "Gold",
+        pieceRoles: ["k", "f", "l", "a", "h", "p", "q"],
+        icon: "◩",
+    }),
+
     // We support to import/store/analyze some variants
     // but don't want to add them to leaderboard page
     embassy: new Variant({
@@ -619,7 +642,7 @@ export const VARIANTS: { [name: string]: IVariant } = {
 };
 
 export const variants = Object.keys(VARIANTS);
-const disabledVariants = [ "gothic", "gothhouse", "embassy" ];
+const disabledVariants = [ "gothic", "gothhouse", "embassy", "ordamirror", "empire" ];
 export const enabledVariants = variants.filter(v => !disabledVariants.includes(v));
 
 const variantGroups: { [ key: string ]: { variants: string[] } } = {
@@ -627,7 +650,8 @@ const variantGroups: { [ key: string ]: { variants: string[] } } = {
     sea:      { variants: [ "makruk", "makpong", "cambodian", "sittuyin" ] },
     shogi:    { variants: [ "shogi", "minishogi", "kyotoshogi", "dobutsu", "gorogoro" ] },
     xiangqi:  { variants: [ "xiangqi", "manchu", "janggi", "minixiangqi" ] },
-    fairy:    { variants: [ "musketeer", "capablanca", "capahouse", "seirawan", "shouse", "grand", "grandhouse", "shako", "shogun", "orda", "synochess", "hoppelpoppel", "shinobi" ] },
+    fairy:    { variants: [ "musketeer", "capablanca", "capahouse", "seirawan", "shouse", "grand", "grandhouse", "shako", "shogun", "hoppelpoppel" ] },
+    asymmetric: { variants: [ "orda", "synochess", "shinobi" ] },
 };
 
 function variantGroupLabel(group) {
@@ -637,6 +661,7 @@ function variantGroupLabel(group) {
         shogi: _("Shogi variants"),
         xiangqi: _("Xiangqi variants"),
         fairy: _("Fairy piece variants"),
+        asymmetric: _("Asymmetric variants"),
     }
     return groups[group];
 }
@@ -685,6 +710,10 @@ export function cg2uci(move) {
 
 // TODO Will be deprecated after WASM Fairy integration
 export function validFen(variant: IVariant, fen: string) {
+    const as = variant.alternateStart;
+    if (as !== undefined) {
+        if (Object.keys(as).some((key) => {return as[key].includes(fen);})) return true;
+    }
     const variantName = variant.name;
     const startfen = variant.startFen;
     const start = startfen.split(' ');
