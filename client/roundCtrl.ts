@@ -19,9 +19,9 @@ import { boardSettings } from './boardSettings';
 import { Clock } from './clock';
 import { Gating } from './gating';
 import { Promotion } from './promotion';
-import { dropIsValid, pocketView, updatePockets, Pockets } from './pocket';
+import { dropIsValid, pocketView, updatePockets, Pockets, updateCommittedGates } from './pocket';
 import { sound } from './sound';
-import { role2san, uci2cg, cg2uci, VARIANTS, IVariant, getPockets, getCounting, isHandicap } from './chess';
+import { role2san, uci2cg, cg2uci, VARIANTS, IVariant, getPockets, getCounting, isHandicap, splitMusketeerFen } from './chess';
 import { crosstableView } from './crosstable';
 import { chatMessage, chatView } from './chat';
 import { createMovelistButtons, updateMovelist, updateResult, selectMove } from './movelist';
@@ -59,6 +59,8 @@ export default class RoundController {
     vpocket1: VNode;
     vplayer0: VNode;
     vplayer1: VNode;
+    vgate0: VNode;
+    vgate1: VNode;
     vmiscInfoW: VNode;
     vmiscInfoB: VNode;
     vpng: VNode;
@@ -96,6 +98,8 @@ export default class RoundController {
     setupFen: string;
     prevPieces: Pieces;
     focus: boolean;
+    committedGates: any;
+    hasCommittedGates: boolean;
 
     constructor(el, model) {
         this.focus = !document.hidden;
@@ -159,6 +163,8 @@ export default class RoundController {
         this.hasPockets = this.variant.pocket;
         this.handicap = this.variant.alternateStart ? Object.keys(this.variant.alternateStart!).some(alt => isHandicap(alt) && this.variant.alternateStart![alt] === this.fullfen) : false;
 
+        this.hasCommittedGates = this.variant.commitGates;
+
         // orientation = this.mycolor
         if (this.spectator) {
             this.mycolor = 'white';
@@ -190,7 +196,14 @@ export default class RoundController {
         const parts = this.fullfen.split(" ");
         this.abortable = Number(parts[parts.length - 1]) <= 1;
 
-        const fen_placement = parts[0];
+        var fen_placement = parts[0];
+        if(this.hasCommittedGates){
+            const mfen = splitMusketeerFen(fen_placement);
+            fen_placement = mfen[0];
+            this.committedGates = [Array<string>(8), Array<string>(8)];
+            this.setCommittedGate(0, mfen[1]);
+            this.setCommittedGate(1, mfen[2]);
+        }
         this.turnColor = parts[1] === "w" ? "white" : "black";
 
         this.steps.push({
@@ -268,6 +281,13 @@ export default class RoundController {
             const pocket0 = document.getElementById('pocket0') as HTMLElement;
             const pocket1 = document.getElementById('pocket1') as HTMLElement;
             updatePockets(this, pocket0, pocket1);
+        }
+
+        // initialize committed gates
+        if(this.hasCommittedGates){
+            const gate0 = document.getElementById('gate0') as HTMLElement;
+            const gate1 = document.getElementById('gate1') as HTMLElement;
+            updateCommittedGates(this, gate0, gate1);
         }
 
         // initialize clocks
@@ -363,6 +383,19 @@ export default class RoundController {
         boardSettings.updatePieceStyle(pieceFamily);
         boardSettings.updateZoom(boardFamily);
         boardSettings.updateBlindfold();
+    }
+
+    private setCommittedGate(idx: number, gateString: string){
+        console.log("setCommittedGate for idx: "+idx+", string: "+gateString);
+        // maybe check gate lengths are correct and equal
+        for(var i = 0; i < gateString.length; i++){
+            var letter = gateString[i].toLowerCase();
+            //console.log(i+" "+letter);
+            if(letter != '*') this.committedGates[idx][i] = letter;
+            else this.committedGates[idx][i] = '*';
+        }
+        //var abc = this.committedGates[0].join('') + ' ' + this.committedGates[1].join('');
+        //patch(document.getElementById('debugspace') as HTMLElement, h('span', abc));
     }
 
     getGround = () => this.chessground;
@@ -573,6 +606,19 @@ export default class RoundController {
         this.clocktimes = msg.clocks;
 
         const parts = msg.fen.split(" ");
+        var fen_board = parts[0];
+
+        if(this.variant.commitGates){
+            updateCommittedGates(this, this.vgate0, this.vgate1);
+            const mfen = splitMusketeerFen(fen_board);
+            fen_board = mfen[0];
+            if(this.hasCommittedGates){
+                console.log("set committed gates (onmsgboard)");
+                this.setCommittedGate(0, mfen[1]);
+                this.setCommittedGate(1, mfen[2]);
+            }
+        }
+
         this.turnColor = parts[1] === "w" ? "white" : "black";
 
         this.result = msg.result;
@@ -661,7 +707,7 @@ export default class RoundController {
         if (this.spectator) {
             if (latestPly) {
                 this.chessground.set({
-                    fen: parts[0],
+                    fen: fen_board,
                     turnColor: this.turnColor,
                     check: msg.check,
                     lastMove: lastMove,
@@ -679,7 +725,7 @@ export default class RoundController {
             if (this.turnColor === this.mycolor) {
                 if (latestPly) {
                     this.chessground.set({
-                        fen: parts[0],
+                        fen: fen_board,
                         turnColor: this.turnColor,
                         movable: {
                             free: false,
@@ -705,7 +751,7 @@ export default class RoundController {
             } else {
                 this.chessground.set({
                     // giving fen here will place castling rooks to their destination in chess960 variants
-                    fen: parts[0],
+                    fen: fen_board,
                     turnColor: this.turnColor,
                     check: msg.check,
                 });
@@ -904,6 +950,10 @@ export default class RoundController {
                 this.pockets[1][role]++;
                 this.vpocket1 = patch(this.vpocket1, pocketView(this, this.turnColor, "bottom"));
             }
+        }
+
+        if(this.variant.commitGates){
+            updateCommittedGates(this, this.vgate0, this.vgate1);
         }
 
         //  gating elephant/hawk

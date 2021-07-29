@@ -84,6 +84,8 @@ export default class AnalysisController {
     vpocket1: VNode;
     vplayer0: VNode;
     vplayer1: VNode;
+    vgate0: VNode;
+    vgate1: VNode;
     vpgn: VNode;
     vscore: VNode | HTMLElement;
     vinfo: VNode | HTMLElement;
@@ -127,6 +129,8 @@ export default class AnalysisController {
     isEngineReady: boolean;
     notation: Notation;
     notationAsObject;
+    committedGates: any;
+    hasCommittedGates: boolean;
     prevPieces: Pieces;
     arrow: boolean;
 

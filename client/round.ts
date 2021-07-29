@@ -83,6 +83,7 @@ export function roundView(model): VNode[] {
                 h('div.' + variant.piece + '.' + model["variant"], [
                     h('div.cg-wrap.pocket', [
                         h('div#pocket0'),
+                        h('div#gate0'),
                     ]),
                 ]),
             ]),
@@ -107,6 +108,7 @@ export function roundView(model): VNode[] {
             h('div.pocket-bot', [
                 h('div.' + variant.piece + '.' + model["variant"], [
                     h('div.cg-wrap.pocket', [
+                        h('div#gate1'),
                         h('div#pocket1'),
                     ]),
                 ]),

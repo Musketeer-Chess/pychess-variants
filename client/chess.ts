@@ -49,6 +49,7 @@ export const PIECE_FAMILIES: { [key: string]: PieceFamily } = {
     orda: { pieceCSS: ["orda0", "orda1"] },
     synochess: { pieceCSS: ["synochess0", "synochess1", "synochess2", "synochess3", "synochess4", "synochess5"] },
     hoppel: { pieceCSS: ["hoppel0", "hoppel1", "hoppel2"] },
+    musketeer: {pieceCSS: ["musketeer0"]},
     shinobi: { pieceCSS: ["shinobi0"] },
 };
 
@@ -103,6 +104,7 @@ export interface IVariant {
     readonly drop: boolean;
     readonly gate: boolean;
     readonly pass: boolean;
+    readonly commitGates: boolean;
 
     readonly alternateStart?: { [ name: string ]: string };
 
@@ -191,6 +193,7 @@ class Variant implements IVariant {
         this.drop = data.drop ?? false;
         this.gate = data.gate ?? false;
         this.pass = data.pass ?? false;
+        this.commitGates = data.commitGates ?? false;
 
         this.alternateStart = data.alternateStart;
 
@@ -602,6 +605,16 @@ export const VARIANTS: { [name: string]: IVariant } = {
         enPassant: true, autoQueenable: true, drop: true,
         icon: "P",
     }),
+
+    musketeer: new Variant({
+        name: "musketeer", displayName: "musketeer", tooltip: _("Many new pieces with fixed gating"),
+        //startFen: "us******/rfbqkunr/pppppppp/8/8/8/8/PPPPPPPP/DNOQKBNR/US****** w KQkq - 0 1",
+        startFen: "usdaoc**/rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/KSLHUCAO/USdaoc** w KQkq - 0 1",
+        board: "standard8x8", piece: "musketeer",
+        pieceRoles: ["k", "q", "r", "b", "n", "p", "l", "h", "c", "a", "e", "u", "o", "d", "f", "s"],
+        enPassant: true, autoQueenable: true, commitGates: true,
+        icon: "`",
+    }),
 };
 
 export const variants = Object.keys(VARIANTS);
@@ -613,7 +626,7 @@ const variantGroups: { [ key: string ]: { variants: string[] } } = {
     sea:      { variants: [ "makruk", "makpong", "cambodian", "sittuyin" ] },
     shogi:    { variants: [ "shogi", "minishogi", "kyotoshogi", "dobutsu", "gorogoro" ] },
     xiangqi:  { variants: [ "xiangqi", "manchu", "janggi", "minixiangqi" ] },
-    fairy:    { variants: [ "capablanca", "capahouse", "seirawan", "shouse", "grand", "grandhouse", "shako", "shogun", "orda", "synochess", "hoppelpoppel", "shinobi" ] },
+    fairy:    { variants: [ "musketeer", "capablanca", "capahouse", "seirawan", "shouse", "grand", "grandhouse", "shako", "shogun", "orda", "synochess", "hoppelpoppel", "shinobi" ] },
 };
 
 function variantGroupLabel(group) {
@@ -887,4 +900,16 @@ export function lc(str: string, letter: string, uppercase: boolean) {
         if (str.charAt(position) === letter)
             letterCount += 1;
     return letterCount;
+}
+
+// Separates the gates from the board for the Musketeer variant
+export function splitMusketeerFen(fen: string){
+    console.log(fen);
+    const start = fen.indexOf('/') + 1;
+    const end = fen.lastIndexOf('/');
+    const board = fen.substring(start, end);
+    const blackGate = fen.substring(0, start - 1);
+    const whiteGate = fen.substring(end + 1);
+    console.log("splitmusketeerfen: "+board+", "+whiteGate+", "+blackGate);
+    return [board, whiteGate, blackGate];
 }

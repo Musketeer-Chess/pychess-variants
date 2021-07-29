@@ -61,6 +61,7 @@ VARIANTS = (
     "synochess",
     "hoppelpoppel",
     "shinobi",
+    "musketeer",
 )
 
 VARIANT_ICONS = {
@@ -102,6 +103,7 @@ VARIANT_ICONS = {
     "atomic": "~",
     "atomic960": "\\",
     "shinobi": "🐢",  # TODO change to correct icon
+    "musketeer": "`",
 }
 
 VARIANT_960_TO_PGN = {

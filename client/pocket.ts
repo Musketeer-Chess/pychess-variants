@@ -11,7 +11,7 @@ import { dragNewPiece } from 'chessgroundx/drag';
 import { Color, Role } from 'chessgroundx/types';
 //import { setDropMode, cancelDropMode } from 'chessgroundx/drop';
 
-import { role2san, letter2role, lc } from './chess';
+import { role2san, letter2role, lc, splitMusketeerFen } from './chess';
 import RoundController from './roundCtrl';
 import AnalysisController from './analysisCtrl';
 import EditorController from './editor';
@@ -94,6 +94,70 @@ export function pocketView(ctrl: RoundController | AnalysisController | EditorCo
       on: onEventHandler
     });
   }));
+}
+
+// for Musketeer 'commit gates'
+export function gateView(ctrl: RoundController | AnalysisController, color: Color, position: Position, gate: any) {
+    //const pocket = ctrl.pockets[position === 'top' ? 0 : 1];
+    //const roles = //Object.keys(pocket);
+    console.log("gateView: "+gate+" position: "+position);
+    console.log('width: '+ String(ctrl.variant.boardWidth));
+    console.log('height: '+ String(ctrl.variant.boardWidth));
+    return h('div.pocket.' + position, {
+        class: { usable: true },
+        style: {
+            '--pocketLength': String(gate!.length),
+            '--files': String(ctrl.variant.boardWidth),
+            '--ranks': String(ctrl.variant.boardWidth),
+        },
+    }, gate.map(role => {
+        //let nb = pocket[role] || 0;
+        console.log(role);
+        if(role === '*') return h('piece.empty', {
+        attrs: {
+            'data-role': 'pawn',
+            'data-color': color,
+            'data-nb': -1,
+        }
+        });
+        else return h('piece.' + role + '.' + color, {
+        attrs: {
+            'data-role': role,
+            'data-color': color,
+            'data-nb': -1,
+        }
+        });
+    }));
+    }
+
+    export function updateCommittedGates(ctrl: RoundController | AnalysisController, vgate0, vgate1): void{
+    console.log("updateCommittedGates ~~");
+    if(ctrl.hasCommittedGates){
+        console.log("hasCommittedGates == true");
+        const mfen = splitMusketeerFen(ctrl.fullfen.split(" ")[0]);
+        console.log("mfen: "+mfen);
+        for(let i = 0; i < 2; i++){
+        const gateString = mfen[i+1];
+        console.log(i+": "+gateString);
+        for(let j = 0; j < gateString.length; j++){
+            var letter = gateString[j].toLowerCase();
+            if(letter != '*' && letter) ctrl.committedGates[i][j] = letter;
+            else ctrl.committedGates[i][j] = '*';
+        }
+        }
+        const color1 = (ctrl.flip) ? ctrl.mycolor : ctrl.oppcolor
+        const color2 = (ctrl.flip) ? ctrl.oppcolor : ctrl.mycolor
+        const invert = (ctrl.mycolor == "white" && ctrl.flip) || (ctrl.mycolor == "black" && !ctrl.flip)
+        var gate1 = ctrl.committedGates[(color1 == "white")?0:1]
+        var gate2 = ctrl.committedGates[(color2 == "white")?0:1]
+        if(invert){
+        gate1 = gate1.reverse()
+        gate2 = gate2.reverse()
+        }
+        console.log("color1: "+color1+", color2: "+color2)
+        ctrl.vgate0 = patch(vgate0, gateView(ctrl, color1, "top", gate1));
+        ctrl.vgate1 = patch(vgate1, gateView(ctrl, color2, "bottom", gate2));
+    }
 }
 
 export function drag(ctrl: RoundController | AnalysisController, e: cg.MouchEvent): void {
