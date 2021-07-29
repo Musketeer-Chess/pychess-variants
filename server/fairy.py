@@ -4,9 +4,9 @@ import re
 import random
 
 try:
-    import pyffish as sf
+    import pyffishm as sf
 except ImportError:
-    print("No pyffish module installed!")
+    print("No pyffishm module installed!")
 
 WHITE, BLACK = False, True
 FILES = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]

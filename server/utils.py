@@ -9,10 +9,10 @@ from aiohttp.web import WebSocketResponse
 from game import new_game_id, MAX_PLY
 
 try:
-    import pyffish as sf
+    import pyffishm as sf
     sf.set_option("VariantPath", "variants.ini")
 except ImportError:
-    print("No pyffish module installed!")
+    print("No pyffishm module installed!")
 
 from broadcast import round_broadcast
 from const import DRAW, STARTED, VARIANT_960_TO_PGN, INVALIDMOVE, GRANDS, \
@@ -617,7 +617,7 @@ def pgn(doc):
 
 
 def sanitize_fen(variant, initial_fen, chess960):
-    # Initial_fen needs validation to prevent segfaulting in pyffish
+    # Initial_fen needs validation to prevent segfaulting in pyffishm
     sanitized_fen = initial_fen
 
     start_fen = sf.start_fen(variant)  # self.board.start_fen(self.variant)

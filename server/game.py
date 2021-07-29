@@ -8,10 +8,10 @@ from itertools import chain
 from time import monotonic
 
 try:
-    import pyffish as sf
+    import pyffishm as sf
     sf.set_option("VariantPath", "variants.ini")
 except ImportError:
-    print("No pyffish module installed!")
+    print("No pyffishm module installed!")
 
 from broadcast import lobby_broadcast
 from clock import Clock
