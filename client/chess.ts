@@ -154,6 +154,7 @@ class Variant implements IVariant {
     readonly drop: boolean;
     readonly gate: boolean;
     readonly pass: boolean;
+    readonly commitGates: boolean;
 
     readonly alternateStart?: { [ name: string ]: string };
 
