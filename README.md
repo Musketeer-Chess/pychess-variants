@@ -6,36 +6,40 @@ PyChess-Variants is a free, open-source chess server designed to play chess vari
 
 Currently supported games are:
 
-- [Makruk](https://www.pychess.org/variant/makruk)
-- [Makpong](https://www.pychess.org/variant/makpong)
-- [Ouk Chatrang](https://www.pychess.org/variant/cambodian)
-- [Sittuyin](https://www.pychess.org/variant/sittuyin)
-- [Shogi](https://www.pychess.org/variant/shogi)
-- [Minishogi](https://www.pychess.org/variant/minishogi)
-- [Kyoto shogi](https://www.pychess.org/variant/kyotoshogi)
-- [Dobutsu shogi](https://www.pychess.org/variant/dobutsu)
-- [Goro-Goro shogi](https://www.pychess.org/variant/gorogoro)
-- [Xiangqi](https://www.pychess.org/variant/xiangqi)
-- [Manchu](https://www.pychess.org/variant/manchu)
-- [Janggi](https://www.pychess.org/variant/janggi)
-- [Minixiangqi](https://www.pychess.org/variant/minixiangqi)
-- [Placement chess](https://www.pychess.org/variant/placement)
-- [Crazyhouse](https://www.pychess.org/variant/crazyhouse)
-- [Atomic](https://www.pychess.org/variant/atomic)
-- [S-chess](https://www.pychess.org/variant/seirawan)
-- [Capablanca](https://www.pychess.org/variant/capablanca)
-- [Gothic](https://www.pychess.org/variant/gothic)
-- [Grand](https://www.pychess.org/variant/grand)
-- [Shako](https://www.pychess.org/variant/shako)
-- [Shogun](https://www.pychess.org/variant/shogun)
-- [Orda](https://www.pychess.org/variant/orda)
-- [Synochess](https://www.pychess.org/variant/synochess)
-- [Hoppel-Poppel](https://www.pychess.org/variant/hoppelpoppel)
-- [Shinobi](https://www.pychess.org/variant/shinobi)
-- [S-house (S-chess+Crazyhouse)](https://www.pychess.org/variant/shouse)
-- [Capahouse (Capablanca+Crazyhouse)](https://www.pychess.org/variant/capahouse)
-- [Grandhouse (Grand chess+Crazyhouse)](https://www.pychess.org/variant/grandhouse)
-- [Standard chess](https://www.pychess.org/variant/chess)
+- [Makruk](https://www.pychess.org/variants/makruk)
+- [Makpong](https://www.pychess.org/variants/makpong)
+- [Ouk Chatrang](https://www.pychess.org/variants/cambodian)
+- [Sittuyin](https://www.pychess.org/variants/sittuyin)
+- [ASEAN Chess](https://www.pychess.org/variants/asean)
+- [Shogi](https://www.pychess.org/variants/shogi)
+- [Minishogi](https://www.pychess.org/variants/minishogi)
+- [Kyoto shogi](https://www.pychess.org/variants/kyotoshogi)
+- [Dobutsu shogi](https://www.pychess.org/variants/dobutsu)
+- [Goro-Goro shogi](https://www.pychess.org/variants/gorogoro)
+- [Tori Shogi](https://www.pychess.org/variants/torishogi)
+- [Xiangqi](https://www.pychess.org/variants/xiangqi)
+- [Manchu](https://www.pychess.org/variants/manchu)
+- [Janggi](https://www.pychess.org/variants/janggi)
+- [Minixiangqi](https://www.pychess.org/variants/minixiangqi)
+- [Placement chess](https://www.pychess.org/variants/placement)
+- [Crazyhouse](https://www.pychess.org/variants/crazyhouse)
+- [Atomic](https://www.pychess.org/variants/atomic)
+- [S-chess](https://www.pychess.org/variants/seirawan)
+- [Capablanca](https://www.pychess.org/variants/capablanca)
+- [Gothic](https://www.pychess.org/variants/gothic)
+- [Grand](https://www.pychess.org/variants/grand)
+- [Shako](https://www.pychess.org/variants/shako)
+- [Shogun](https://www.pychess.org/variants/shogun)
+- [Orda](https://www.pychess.org/variants/orda)
+- [Synochess](https://www.pychess.org/variants/synochess)
+- [Hoppel-Poppel](https://www.pychess.org/variants/hoppelpoppel)
+- [Shinobi](https://www.pychess.org/variants/shinobi)
+- [Empire Chess](https://www.pychess.org/variants/empire)
+- [Orda Mirror](https://www.pychess.org/variants/ordamirror)
+- [S-house (S-chess+Crazyhouse)](https://www.pychess.org/variants/shouse)
+- [Capahouse (Capablanca+Crazyhouse)](https://www.pychess.org/variants/capahouse)
+- [Grandhouse (Grand chess+Crazyhouse)](https://www.pychess.org/variants/grandhouse)
+- [Standard chess](https://www.pychess.org/variants/chess)
 
 Additionally you can check Chess960 option in for Standard, Crazyhouse, Atomic, S-chess, Capablanca and Capahouse to start games from random positions with 
 [Chess960 castling rules](https://en.wikipedia.org/wiki/Chess960#Castling_rules)
@@ -58,19 +62,15 @@ Your contribution will be greatly appreciated and help me continue to develop th
 ## Installation
 
 ### Prerequisites
-* [Mongo daemon](https://docs.mongodb.com/manual/installation/) (You need mongodb up and running)
+* You need mongodb up and running. [Mongo daemon](https://docs.mongodb.com/manual/installation/)
 
 
 ### Project setup
 ```
-pip3 install -r requirements.txt --user
-yarn install
-yarn dev
-```
-
-For MacOS, replace the last command with:
-```
-yarn dev-mac
+pip3 install -r requirements.txt --user // Install python requirements
+yarn install                            // Install node requirements
+yarn dev                                // Compile typescript files to javascript
+yarn md                                 // Compile md files to html
 ```
 
 ### Start server

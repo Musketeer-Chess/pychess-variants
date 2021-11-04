@@ -1,5 +1,8 @@
 from settings import static_url
 
+# Max number of lobby chat lines (deque limit)
+MAX_CHAT_LINES = 100
+
 # Minimum number of rated games needed
 HIGHSCORE_MIN_GAMES = 5
 
@@ -16,7 +19,7 @@ DAILY, WEEKLY, MONTHLY, YEARLY, MARATHON, SHIELD = "d", "w", "m", "y", "a", "s"
 ARENA, RR, SWISS = range(3)
 
 # translations
-LANGUAGES = ["de", "en", "es", "gl_ES", "fr", "hu", "it", "ja", "ko", "pl", "pt", "th", "tr", "zh"]
+LANGUAGES = ["de", "en", "es", "gl_ES", "fr", "hu", "it", "ja", "ko", "nl", "pl", "pt", "ru", "th", "tr", "zh"]
 
 # fishnet work types
 MOVE, ANALYSIS = 0, 1
@@ -51,11 +54,13 @@ VARIANTS = (
     "makpong",
     "cambodian",
     "sittuyin",
+    "asean",
     "shogi",
     "minishogi",
     "kyotoshogi",
     "dobutsu",
     "gorogoro",
+    "torishogi",
     "xiangqi",
     "manchu",
     "janggi",
@@ -74,14 +79,14 @@ VARIANTS = (
     "shouse",
     "grand",
     "grandhouse",
-    "shako",
     "shogun",
+    "shako",
+    "hoppelpoppel",
     "orda",
     "synochess",
-    "hoppelpoppel",
     "shinobi",
-    # "empire",
-    # "ordamirror",
+    "empire",
+    "ordamirror",
     "musketeer",
 )
 
@@ -108,6 +113,7 @@ VARIANT_ICONS = {
     "minishogi": "6",
     "dobutsu": "8",
     "gorogoro": "🐱",
+    "torishogi": "🐦",
     "cambodian": "!",
     "shako": "9",
     "minixiangqi": "7",
@@ -127,6 +133,7 @@ VARIANT_ICONS = {
     "empire": "♚",
     "ordamirror": "◩",
     "musketeer": "`",
+    "asean": "♻",
 }
 
 VARIANT_960_TO_PGN = {
@@ -143,6 +150,20 @@ VARIANT_960_TO_PGN = {
     "placement": "Placement",
     "grand": "Grand",
 }
+
+CATEGORIES = {
+    "chess": ("chess", "chess960", "crazyhouse", "crazyhouse960", "placement", "atomic", "atomic960"),
+    "fairy": ("capablanca", "capablanca960", "capahouse", "capahouse960", "seirawan", "seirawan960", "shouse", "grand", "grandhouse", "shako", "shogun", "hoppelpoppel"),
+    "army": ("orda", "synochess", "shinobi", "empire", "ordamirror"),
+    "makruk": ("makruk", "makpong", "cambodian", "sittuyin", "asean"),
+    "shogi": ("shogi", "minishogi", "kyotoshogi", "dobutsu", "gorogoro", "torishogi"),
+    "xiangqi": ("xiangqi", "manchu", "janggi", "minixiangqi"),
+}
+
+VARIANT_GROUPS = {}
+for categ in CATEGORIES:
+    for variant in CATEGORIES[categ]:
+        VARIANT_GROUPS[variant] = categ
 
 TROPHIES = {
     "top1": (static_url("images/trophy/Big-Gold-Cup.png"), "Champion!"),
@@ -162,6 +183,12 @@ def variant_display_name(variant):
         return "S-HOUSE"
     elif variant == "cambodian":
         return "OUK CHATRANG"
+    elif variant == "ordamirror":
+        return "ORDA MIRROR"
+    elif variant == "kyotoshogi":
+        return "KYOTO SHOGI"
+    elif variant == "torishogi":
+        return "TORI SHOGI"
     else:
         return variant.upper()
 

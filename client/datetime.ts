@@ -1,4 +1,4 @@
-import { init } from 'snabbdom';
+import { init, h } from 'snabbdom';
 import klass from 'snabbdom/modules/class';
 import attributes from 'snabbdom/modules/attributes';
 import properties from 'snabbdom/modules/props';
@@ -6,8 +6,8 @@ import listeners from 'snabbdom/modules/eventlisteners';
 
 const patch = init([klass, attributes, properties, listeners]);
 
-import h from 'snabbdom/h';
 import { _, ngettext } from './i18n';
+import TournamentController from "./tournament";
 
 export const localeOptions: Intl.DateTimeFormatOptions = {
     year: 'numeric',
@@ -17,9 +17,9 @@ export const localeOptions: Intl.DateTimeFormatOptions = {
     minute: 'numeric',
 };
 
-export function timeago(date) {
+export function timeago(date: string) {
     const TZdate = (new Date(date)).getTime();
-    const maxLength = { second: 60, minute: 60, hour: 24, day: 7, week: 4.35, month: 12, year: 10000 };
+    const maxLength: {[key:string]: number} = { second: 60, minute: 60, hour: 24, day: 7, week: 4.35, month: 12, year: 10000 };
     let val, inTheFuture;
     if (Date.now() >= TZdate) {
         val = (Date.now() - TZdate) / 1000;
@@ -56,7 +56,7 @@ export function timeago(date) {
 
 export function renderTimeago() {
     const els = document.getElementsByTagName("info-date");
-    Array.from(els).forEach((el) => {el.innerHTML = timeago(el.getAttribute('timestamp'));});
+    Array.from(els).forEach((el) => {el.innerHTML = timeago(el.getAttribute('timestamp') ?? "unknown when");});
     setTimeout(renderTimeago, 1200);
 }
 
@@ -72,11 +72,11 @@ function getTimeRemaining(endtime: number) {
     return {totalSecs, days, hours, minutes, seconds};
 }
 
-export function initializeClock(ctrl) {
+export function initializeClock(ctrl: TournamentController) {
     // console.log('initializeClock', ctrl.tournamentStatus, ctrl.secondsToStart, ctrl.secondsToFinish);
     if ('finished|archived'.includes(ctrl.tournamentStatus)) return;
 
-    let endtime, timeinterval;
+    let endtime: number, timeinterval: ReturnType<typeof setInterval>;
     if (ctrl.secondsToFinish > 0) {
         endtime = Date.now() + ctrl.secondsToFinish * 1000;
         ctrl.clockdiv = patch(ctrl.clockdiv, h('div#clockdiv', [h('span#clock')]));

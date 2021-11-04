@@ -1,8 +1,10 @@
-import h from 'snabbdom/h';
+import { h } from 'snabbdom';
+import { VNode } from "snabbdom/vnode";
+import { CrossTable } from "./messages";
 
-export function crosstableView (ctable, gameId) {
+export function crosstableView (ctable: CrossTable, gameId: string) {
     const s1 = ctable.s1, s2 = ctable.s2, games = ctable.r;
-    let rows;
+    let rows : VNode[];
     if (games.length < 20) {
         rows = [h('fill')];
     } else {

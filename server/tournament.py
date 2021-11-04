@@ -13,7 +13,8 @@ from pymongo import ReturnDocument
 from broadcast import lobby_broadcast
 from compress import R2C
 from const import CASUAL, RATED, CREATED, STARTED, BYEGAME, VARIANTEND, FLAG,\
-    ARENA, RR, T_CREATED, T_STARTED, T_ABORTED, T_FINISHED, T_ARCHIVED, SHIELD
+    ARENA, RR, T_CREATED, T_STARTED, T_ABORTED, T_FINISHED, T_ARCHIVED, SHIELD,\
+    MAX_CHAT_LINES
 from game import Game
 from glicko2.glicko2 import gl2
 from misc import time_control_str
@@ -57,7 +58,7 @@ class ByeGame:
 class PlayerData:
     """ Used to save/load tournament players to/from mongodb tournament-player documents """
 
-    __slots__ = "id", "rating", "provisional", "free", "paused", "withdrawn", "win_streak", "games", "points", "nb_games", "nb_win", "nb_not_paired", "performance", "prev_opp", "color_diff", "page"
+    __slots__ = "id", "rating", "provisional", "free", "paused", "withdrawn", "win_streak", "games", "points", "nb_games", "nb_win", "nb_berserk", "nb_not_paired", "performance", "prev_opp", "color_balance", "page"
 
     def __init__(self, rating, provisional):
         self.id = None
@@ -71,10 +72,11 @@ class PlayerData:
         self.points = []
         self.nb_games = 0
         self.nb_win = 0
+        self.nb_berserk = 0
         self.nb_not_paired = 0
         self.performance = 0
         self.prev_opp = ""
-        self.color_diff = 0
+        self.color_balance = 0  # +1 when played as white, -1 when played as black
         self.page = 0
 
     def __str__(self):
@@ -84,9 +86,9 @@ class PlayerData:
 class GameData:
     """ Used to save/load tournament games to/from mongodb tournament-pairing documents """
 
-    __slots__ = "id", "wplayer", "white_rating", "bplayer", "black_rating", "result", "date"
+    __slots__ = "id", "wplayer", "white_rating", "bplayer", "black_rating", "result", "date", "wberserk", "bberserk"
 
-    def __init__(self, _id, wplayer, wrating, bplayer, brating, result, date):
+    def __init__(self, _id, wplayer, wrating, bplayer, brating, result, date, wberserk, bberserk):
         self.id = _id
         self.wplayer = wplayer
         self.bplayer = bplayer
@@ -94,6 +96,8 @@ class GameData:
         self.date = date
         self.white_rating = gl2.create_rating(int(wrating.rstrip("?")))
         self.black_rating = gl2.create_rating(int(brating.rstrip("?")))
+        self.wberserk = wberserk
+        self.bberserk = bberserk
 
     def game_json(self, player):
         color = "w" if self.wplayer == player else "b"
@@ -146,7 +150,7 @@ class Tournament(ABC):
         self.current_round = 0
         self.prev_pairing = None
 
-        self.messages = collections.deque([], 200)
+        self.messages = collections.deque([], MAX_CHAT_LINES)
         self.spectators = set()
         self.players = {}
         self.leaderboard = ValueSortedDict(neg)
@@ -159,6 +163,7 @@ class Tournament(ABC):
         self.w_win = 0
         self.b_win = 0
         self.draw = 0
+        self.nb_berserk = 0
 
         self.nb_games_cached = -1
         self.leaderboard_cache = {}
@@ -234,6 +239,7 @@ class Tournament(ABC):
                 "perf": self.players[player].performance,
                 "nbGames": self.players[player].nb_games,
                 "nbWin": self.players[player].nb_win,
+                "nbBerserk": self.players[player].nb_berserk,
             }
 
         start = (page - 1) * 10
@@ -252,6 +258,13 @@ class Tournament(ABC):
             ]
         }
 
+        if self.status > T_STARTED:
+            page_json["podium"] = [
+                player_json(player, full_score) for
+                player, full_score in
+                self.leaderboard.items()[0:3]
+            ]
+
         self.leaderboard_cache[page] = page_json
         return page_json
 
@@ -266,6 +279,7 @@ class Tournament(ABC):
             "perf": self.players[player].performance,
             "nbGames": self.players[player].nb_games,
             "nbWin": self.players[player].nb_win,
+            "nbBerserk": self.players[player].nb_berserk,
             "games": [
                 game.game_json(player) for
                 game in
@@ -332,12 +346,13 @@ class Tournament(ABC):
 
                         if now >= self.prev_pairing + self.wave + random.uniform(-self.wave_delta, self.wave_delta):
                             waiting_players = self.waiting_players()
-                            if len(waiting_players) >= (4 if len(self.players) > 4 else 3):
-                                log.debug("Enough player (%s), do pairing", len(waiting_players))
+                            nb_waiting_players = len(waiting_players)
+                            if nb_waiting_players == 2 or nb_waiting_players >= (4 if len(self.players) > 20 else 3):
+                                log.debug("Enough player (%s), do pairing", nb_waiting_players)
                                 await self.create_new_pairings(waiting_players)
                                 self.prev_pairing = now
                             else:
-                                log.debug("Too few player (%s) to make pairing", len(waiting_players))
+                                log.debug("Too few player (%s) to make pairing", nb_waiting_players)
                         else:
                             log.debug("Waiting for new pairing wave...")
 
@@ -389,6 +404,7 @@ class Tournament(ABC):
             "wWin": self.w_win,
             "bWin": self.b_win,
             "draw": self.draw,
+            "berserk": self.nb_berserk,
             "sumRating": sum(self.players[player].rating for player in self.players if not self.players[player].withdrawn),
         }
 
@@ -550,7 +566,10 @@ class Tournament(ABC):
                     "_id": game.id,
                     "tid": self.id,
                     "u": [game.wplayer.username, game.bplayer.username],
-                    "s": game.status,
+                    "r": "*",
+                    "d": game.date,
+                    "wr": game.wrating,
+                    "br": game.brating,
                 }
                 await self.app["db"].tournament_pairing.insert_one(doc)
 
@@ -571,8 +590,8 @@ class Tournament(ABC):
             self.players[wp].prev_opp = game.bplayer.username
             self.players[bp].prev_opp = game.wplayer.username
 
-            self.players[wp].color_diff += 1
-            self.players[bp].color_diff -= 1
+            self.players[wp].color_balance += 1
+            self.players[bp].color_balance -= 1
 
             self.players[wp].nb_not_paired = 0
             self.players[bp].nb_not_paired = 0
@@ -646,6 +665,9 @@ class Tournament(ABC):
                 else:
                     wpoint = (2, SCORE)
 
+            if game.wberserk and game.board.ply >= 13:
+                wpoint = (wpoint[0] + 1, wpoint[1])
+
             wperf += 500
             bperf -= 500
 
@@ -667,6 +689,9 @@ class Tournament(ABC):
                 else:
                     bpoint = (2, SCORE)
 
+            if game.bberserk and game.board.ply >= 14:
+                bpoint = (bpoint[0] + 1, bpoint[1])
+
             wperf -= 500
             bperf += 500
 
@@ -680,6 +705,14 @@ class Tournament(ABC):
         wplayer = self.players[game.wplayer]
         bplayer = self.players[game.bplayer]
 
+        if game.wberserk:
+            wplayer.nb_berserk += 1
+            self.nb_berserk += 1
+
+        if game.bberserk:
+            bplayer.nb_berserk += 1
+            self.nb_berserk += 1
+
         wpoint, bpoint, wperf, bperf = self.points_perfs(game)
 
         wplayer.points[-1] = wpoint
@@ -689,8 +722,8 @@ class Tournament(ABC):
         if bpoint[1] == STREAK:
             bplayer.points[-2] = (bplayer.points[-2][0], STREAK)
 
-        wplayer.rating += int(game.wrdiff) if game.wrdiff else 0
-        bplayer.rating += int(game.brdiff) if game.brdiff else 0
+        wplayer.rating = game.white_rating.rating_prov[0] + (int(game.wrdiff) if game.wrdiff else 0)
+        bplayer.rating = game.black_rating.rating_prov[0] + (int(game.brdiff) if game.brdiff else 0)
 
         # TODO: in Swiss we will need Berger instead of performance to calculate tie breaks
         nb = wplayer.nb_games
@@ -715,15 +748,9 @@ class Tournament(ABC):
         elif game.result == "1/2-1/2":
             self.draw += 1
 
-        wplayer.free = True
-        bplayer.free = True
-
-        if game.status == FLAG:
-            # pause players when they don't start their game
-            if game.board.ply == 0:
-                wplayer.paused = True
-            elif game.board.ply == 1:
-                bplayer.paused = True
+        # TODO: save player points to db
+        # await self.db_update_player(wplayer, self.players[wplayer])
+        # await self.db_update_player(bplayer, self.players[bplayer])
 
         self.set_top_player()
 
@@ -744,6 +771,21 @@ class Tournament(ABC):
                     if (self.top_game is not None) and (self.top_game.status <= STARTED):
                         tgj = self.top_game_json
                         await self.broadcast(tgj)
+
+        await self.delayed_free(game, wplayer, bplayer)
+
+    async def delayed_free(self, game, wplayer, bplayer):
+        asyncio.sleep(3)
+
+        wplayer.free = True
+        bplayer.free = True
+
+        if game.status == FLAG:
+            # pause players when they don't start their game
+            if game.board.ply == 0:
+                wplayer.paused = True
+            elif game.board.ply == 1:
+                bplayer.paused = True
 
     async def broadcast(self, response):
         for spectator in self.spectators:
@@ -786,6 +828,7 @@ class Tournament(ABC):
                 "s": int(full_score / SCORE_SHIFT),
                 "g": player_data.nb_games,
                 "w": player_data.nb_win,
+                "b": player_data.nb_berserk,
                 "e": player_data.performance,
                 "p": player_data.points,
                 "wd": False,
@@ -803,7 +846,8 @@ class Tournament(ABC):
                 log.error("db find_one_and_update tournament_player %s into %s failed !!!", player_id, self.id)
 
         new_data = {
-            "nbPlayers": self.nb_players
+            "nbPlayers": self.nb_players,
+            "nbBerserk": self.nb_berserk
         }
         print(await self.app["db"].tournament.find_one_and_update(
             {"_id": self.id},
@@ -852,6 +896,8 @@ class Tournament(ABC):
                         "d": game.date,
                         "wr": game.wrating,
                         "br": game.brating,
+                        "wb": game.wberserk,
+                        "bb": game.bberserk,
                     })
                 processed_games.add(game.id)
 
@@ -880,8 +926,8 @@ class Tournament(ABC):
     def discord_msg(self):
         tc = time_control_str(self.base, self.inc, self.byoyomi_period)
         tail960 = "960" if self.chess960 else ""
-        return "%s: **%s%s** %s tournament created at UTC %s will start in **%s** minutes" % (
-            self.created_by, self.variant, tail960, tc, self.created_at.strftime("%Y.%m.%d %H:%M"), self.minutes)
+        return "%s: **%s%s** %s tournament starts at UTC %s, duration will be **%s** minutes" % (
+            self.created_by, self.variant, tail960, tc, self.starts_at.strftime("%Y.%m.%d %H:%M"), self.minutes)
 
 
 def tournament_spotlights(tournaments):

@@ -1,8 +1,10 @@
+import asyncio
 from datetime import datetime
 import functools
 import logging
 from urllib.parse import urlparse
 import warnings
+import json
 
 from aiohttp import web
 import aiohttp_session
@@ -18,16 +20,16 @@ except ImportError:
     def html_minify(html):
         return html
 
-from const import LANGUAGES, TROPHIES, VARIANTS, VARIANT_ICONS, CASUAL, RATED, IMPORTED, variant_display_name, pairing_system_name
+from const import LANGUAGES, TROPHIES, VARIANTS, VARIANT_ICONS, VARIANT_GROUPS, RATED, IMPORTED, variant_display_name, pairing_system_name, T_CREATED
 from fairy import FairyBoard
 from glicko2.glicko2 import DEFAULT_PERF, PROVISIONAL_PHI
 from robots import ROBOTS_TXT
-from settings import ADMINS, MAX_AGE, URI, STATIC_ROOT, BR_EXTENSION, SOURCE_VERSION, DEV
+from settings import ADMINS, TOURNAMENT_DIRECTORS, MAX_AGE, URI, STATIC_ROOT, BR_EXTENSION, SOURCE_VERSION, DEV
 from misc import time_control_str
 from news import NEWS
 from user import User
-from utils import load_game, tv_game, tv_game_user
-from tournaments import get_latest_tournaments, load_tournament, create_tournament
+from utils import load_game, join_seek, tv_game, tv_game_user
+from tournaments import get_winners, get_latest_tournaments, load_tournament, create_or_update_tournament, get_tournament_name
 
 log = logging.getLogger(__name__)
 
@@ -95,8 +97,8 @@ async def index(request):
         view = "stats"
     elif request.path.startswith("/news"):
         view = "news"
-    elif request.path.startswith("/variant"):
-        view = "variant"
+    elif request.path.startswith("/variants"):
+        view = "variants"
     elif request.path == "/players":
         view = "players"
     elif request.path == "/allplayers":
@@ -120,14 +122,23 @@ async def index(request):
         view = "embed"
     elif request.path == "/paste":
         view = "paste"
+    elif request.path.endswith("/shields"):
+        view = "shields"
+    elif request.path.endswith("/winners"):
+        view = "winners"
     elif request.path.startswith("/tournaments"):
         view = "tournaments"
         if user.username in ADMINS:
             if request.path.endswith("/new"):
                 view = "arena-new"
+            elif request.path.endswith("/edit"):
+                view = "arena-new"
+                tournament = await load_tournament(request.app, tournamentId)
+                if tournament is None or tournament.status != T_CREATED:
+                    view = "tournaments"
             elif request.path.endswith("/arena"):
                 data = await request.post()
-                await create_tournament(request.app, user.username, data)
+                await create_or_update_tournament(request.app, user.username, data)
     elif request.path.startswith("/tournament"):
         view = "tournament"
         tournament = await load_tournament(request.app, tournamentId)
@@ -135,10 +146,23 @@ async def index(request):
         if tournament is None:
             return web.HTTPFound("/")
 
+        if user.username in ADMINS and tournament.status == T_CREATED:
+            if request.path.endswith("/edit"):
+                data = await request.post()
+                await create_or_update_tournament(request.app, user.username, data, tournament=tournament)
+
+            elif request.path.endswith("/cancel"):
+                await tournament.abort()
+                return web.HTTPFound("/tournaments")
+
         if request.path.endswith("/pause") and user in tournament.players:
             await tournament.pause(user)
 
     profileId = request.match_info.get("profileId")
+    if profileId is not None and profileId not in users:
+        await asyncio.sleep(3)
+        return web.Response(status=404)
+
     variant = request.match_info.get("variant")
     if (variant is not None) and ((variant not in VARIANTS) and variant != "terminology"):
         log.debug("Invalid variant %s in request", variant)
@@ -167,19 +191,42 @@ async def index(request):
                 return web.HTTPFound("/")
 
     # Do we have gameId in request url?
-    if gameId is not None:
+    if (gameId is not None) and gameId != "variants":
         if view not in ("tv", "analysis", "embed"):
             view = "round"
         invites = request.app["invites"]
         if (gameId not in games) and (gameId in invites):
-            if not request.path.startswith("/invite/accept/"):
-                seek_id = invites[gameId].id
-                seek = request.app["seeks"][seek_id]
+            seek_id = invites[gameId].id
+            seek = request.app["seeks"][seek_id]
+            if request.path.startswith("/invite/accept/"):
+                player = request.match_info.get("player")
+                seek_status = await join_seek(request.app, user, seek_id, gameId, join_as=player)
+
+                if seek_status["type"] == "seek_joined":
+                    view = "invite"
+                    inviter = "wait"
+                elif seek_status["type"] == "seek_occupied":
+                    view = "invite"
+                    inviter = "occupied"
+                elif seek_status["type"] == "seek_yourself":
+                    view = "invite"
+                    inviter = "yourself"
+                elif seek_status["type"] == "new_game":
+                    try:
+                        # Put response data to sse subscribers queue
+                        channels = request.app["invite_channels"]
+                        for queue in channels:
+                            await queue.put(json.dumps({"gameId": gameId}))
+                        # return games[game_id]
+                    except ConnectionResetError:
+                        pass
+
+            else:
                 view = "invite"
-                inviter = seek.user.username if user.username != seek.user.username else ""
+                inviter = seek.creator.username if user.username != seek.creator.username else ""
 
         if view != "invite":
-            game = await load_game(request.app, gameId, user=user)
+            game = await load_game(request.app, gameId)
             if game is None:
                 log.debug("Requested game %s not in app['games']", gameId)
                 template = get_template("404.html")
@@ -193,6 +240,9 @@ async def index(request):
             if user.username != game.wplayer.username and user.username != game.bplayer.username:
                 game.spectators.add(user)
 
+            if game.tournamentId is not None:
+                tournament_name = await get_tournament_name(request.app, game.tournamentId)
+
     if view in ("profile", "level8win"):
         if (profileId in users) and not users[profileId].enabled:
             template = get_template("closed.html")
@@ -200,6 +250,10 @@ async def index(request):
             template = get_template("profile.html")
     elif view == "players":
         template = get_template("players.html")
+    elif view == "shields":
+        template = get_template("shields.html")
+    elif view == "winners":
+        template = get_template("winners.html")
     elif view == "allplayers":
         template = get_template("allplayers.html")
     elif view == "tournaments":
@@ -208,8 +262,8 @@ async def index(request):
         template = get_template("arena-new.html")
     elif view == "news":
         template = get_template("news.html")
-    elif view == "variant":
-        template = get_template("variant.html")
+    elif view == "variants":
+        template = get_template("variants.html")
     elif view == "patron":
         template = get_template("patron.html")
     elif view == "faq":
@@ -241,6 +295,7 @@ async def index(request):
         "fen": fen.replace(".", "+").replace("_", " ") if fen is not None else "",
         "variants": VARIANTS,
         "variant_display_name": variant_display_name,
+        "tournamentdirector": user.username in TOURNAMENT_DIRECTORS,
     }
 
     if view in ("profile", "level8win"):
@@ -284,6 +339,13 @@ async def index(request):
         hs = request.app["highscore"]
         render["highscore"] = {variant: dict(hs[variant].items()[:10]) for variant in hs}
 
+    elif view in ("shields", "winners"):
+        wi = await get_winners(request.app, shield=(view == "shields"))
+        render["view_css"] = "players.css"
+        render["users"] = users
+        render["icons"] = VARIANT_ICONS
+        render["winners"] = wi
+
     elif view == "allplayers":
         allusers = [u for u in users.values() if not u.anon]
         render["allusers"] = allusers
@@ -293,9 +355,9 @@ async def index(request):
         render["pairing_system_name"] = pairing_system_name
         render["time_control_str"] = time_control_str
         render["tables"] = await get_latest_tournaments(request.app)
-        render["admin"] = user.username in ADMINS.split(",")
+        render["admin"] = user.username in ADMINS
 
-    if gameId is not None:
+    if (gameId is not None) and gameId != "variants":
         if view == "invite":
             render["gameid"] = gameId
             render["variant"] = seek.variant
@@ -305,6 +367,7 @@ async def index(request):
             render["inc"] = seek.inc
             render["byo"] = seek.byoyomi_period
             render["inviter"] = inviter
+            render["seekempty"] = seek.player1 is None and seek.player2 is None
         else:
             render["gameid"] = gameId
             render["variant"] = game.variant
@@ -326,43 +389,51 @@ async def index(request):
             render["result"] = game.result
             render["status"] = game.status
             render["date"] = game.date.isoformat()
-            render["title"] = game.wplayer.username + ' vs ' + game.bplayer.username
+            render["title"] = game.browser_title
             if ply is not None:
                 render["ply"] = ply
             if game.tournamentId is not None:
                 render["tournamentid"] = game.tournamentId
+                render["tournamentname"] = tournament_name
+                render["wberserk"] = game.wberserk
+                render["bberserk"] = game.bberserk
 
     if tournamentId is not None:
         render["tournamentid"] = tournamentId
-        render["profile_title"] = tournament.name
+        render["tournamentname"] = tournament.name
+        render["description"] = tournament.description
         render["variant"] = tournament.variant
         render["chess960"] = tournament.chess960
-        render["rated"] = RATED if tournament.rated else CASUAL
+        render["rated"] = tournament.rated
         render["base"] = tournament.base
         render["inc"] = tournament.inc
         render["byo"] = tournament.byoyomi_period
         render["fen"] = tournament.fen
+        render["before_start"] = tournament.before_start
+        render["minutes"] = tournament.minutes
         render["date"] = tournament.starts_at
+        render["rounds"] = tournament.rounds
+        render["frequency"] = tournament.frequency
         render["status"] = tournament.status
 
     if view == "level8win":
         render["level"] = 8
         render["profile"] = "Fairy-Stockfish"
 
-    elif view == "variant":
+    elif view == "variants":
         render["icons"] = VARIANT_ICONS
+        render["groups"] = VARIANT_GROUPS
+
         # variant None indicates intro.md
         if lang in ("es", "hu", "it", "pt", "fr"):
             locale = ".%s" % lang
-        elif lang == "zh":
-            # Only intro.md
-            locale = ".%s" % lang if variant in (None,) else ""
         else:
             locale = ""
+
         if variant == "terminology":
             render["variant"] = "docs/terminology%s.html" % locale
         else:
-            render["variant"] = "docs/" + ("intro" if variant is None else variant) + "%s.html" % locale
+            render["variant"] = "docs/" + ("terminology" if variant is None else variant) + "%s.html" % locale
 
     elif view == "news":
         news_item = request.match_info.get("news_item")
@@ -384,6 +455,11 @@ async def index(request):
             fen = fen.replace(".", "+").replace("_", " ")
         render["variant"] = variant
         render["fen"] = fen
+
+    elif view == "arena-new":
+        render["edit"] = tournamentId is not None
+        if tournamentId is None:
+            render["rated"] = True
 
     try:
         text = await template.render_async(render)

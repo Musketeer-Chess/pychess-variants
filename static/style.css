@@ -1,10 +1,10 @@
 @font-face {
   font-family: 'pychess';
-  src:  url('fonts/pychess.eot?xaw7gc');
-  src:  url('fonts/pychess.eot?xaw7gc#iefix') format('embedded-opentype'),
-    url('fonts/pychess.ttf?xaw7gc') format('truetype'),
-    url('fonts/pychess.woff?xaw7gc') format('woff'),
-    url('fonts/pychess.svg?xaw7gc#pychess') format('svg');
+  src:  url('fonts/pychess.eot?95x7ic');
+  src:  url('fonts/pychess.eot?95x7ic#iefix') format('embedded-opentype'),
+    url('fonts/pychess.ttf?95x7ic') format('truetype'),
+    url('fonts/pychess.woff?95x7ic') format('woff'),
+    url('fonts/pychess.svg?95x7ic#pychess') format('svg');
   font-weight: normal;
   font-style: normal;
   font-display: block;
@@ -39,7 +39,19 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-
+.icon-berserk:before {
+  content: "\2963";
+}
+.icon-ASEAN:before {
+  content: "\267b";
+  color: #98812d;
+}
+.icon-discord:before {
+  content: "\1f3ae";
+}
+.icon-ToriShogi:before {
+  content: "\1f426";
+}
 .icon-ordamirror:before {
   content: "\25e9";
 }
@@ -334,6 +346,12 @@
 .icon-Gorogoro:before {
   content: "\1f431";
   color: #3771c8;
+}
+.icon-mic:before {
+  content: "\e91e";
+}
+.icon-book:before {
+  content: "\e91f";
 }
 .icon-fire:before {
   content: "\e9a9";

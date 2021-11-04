@@ -154,9 +154,21 @@ td.player-data {
     width:100%;
     background-color: var(--bg-color1);
 }
-
+#games tr player {
+    font-size: 1.3em;
+}
+#games tr player a {
+    display: contents;
+}
 #games tbody tr:hover {
     width:100%;
     background-color: var(--game-hover);
     cursor: pointer;
+}
+#games tr a .icon-trophy {
+    display: contents;
+    color: var(--link-color-blue);
+}
+#games tr a .icon-trophy::before {
+    padding-right: 4px;
 }

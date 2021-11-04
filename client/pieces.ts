@@ -1,4 +1,4 @@
-import { h, init } from "snabbdom";
+import { init, h } from "snabbdom";
 import { VNode } from 'snabbdom/vnode';
 import klass from 'snabbdom/modules/class';
 import attributes from 'snabbdom/modules/attributes';
@@ -9,7 +9,7 @@ import listeners from 'snabbdom/modules/eventlisteners';
 import * as cg from 'chessgroundx/types';
 import { dragNewPiece } from 'chessgroundx/drag';
 
-import EditorController from './editor';
+import { EditorController }  from './editorCtrl';
 import { letter2role } from './chess';
 
 const patch = init([klass, attributes, properties, style, listeners]);
@@ -25,7 +25,7 @@ export function piecesView(ctrl: EditorController, color: cg.Color, position: Po
     return h('div.pocket.' + position + '.editor.usable', {
         style: {
             '--editorLength': String(roles.length),
-            '--piecerows': String((roles.length > width) ? 2 : 1),
+            '--piecerows': String(Math.ceil(roles.length / width)),
             '--files': String(width),
             '--ranks': String(height),
         },
@@ -41,10 +41,12 @@ export function piecesView(ctrl: EditorController, color: cg.Color, position: Po
     }, roles.map(r => {
         const promoted = r.length > 1;
         if (r.endsWith('~')) {
-            r = r.slice(0, -1);
+            r = r.slice(0, -1) as cg.PieceLetter;
         }
         const role = letter2role(r);
-        return h(`piece.${role}.${promoted ? "promoted." : ""}${color}`, {
+        const orientation = ctrl.flip ? ctrl.oppcolor : ctrl.mycolor;
+        const side = color === orientation ? "ally" : "enemy";
+        return h(`piece.${role}.${promoted ? "promoted." : ""}${color}.${side}`, {
             attrs: {
                 'data-role': role,
                 'data-color': color,

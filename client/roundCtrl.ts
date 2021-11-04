@@ -1,27 +1,29 @@
 import Sockette from 'sockette';
 
-import { init } from 'snabbdom';
-import { h } from 'snabbdom/h';
+import { init, h } from 'snabbdom';
 import { VNode } from 'snabbdom/vnode';
 import klass from 'snabbdom/modules/class';
 import attributes from 'snabbdom/modules/attributes';
 import properties from 'snabbdom/modules/props';
 import listeners from 'snabbdom/modules/eventlisteners';
 
-import { key2pos, pos2key } from 'chessgroundx/util';
+import * as util from 'chessgroundx/util';
 import { Chessground } from 'chessgroundx';
 import { Api } from 'chessgroundx/api';
-import { Color, Dests, Pieces, PiecesDiff, Role, Key, Pos, Piece, Variant, Notation, SetPremoveMetadata } from 'chessgroundx/types';
+import * as cg from 'chessgroundx/types';
+import { cancelDropMode } from 'chessgroundx/drop';
+import { predrop } from 'chessgroundx/predrop';
 
 import { JSONObject } from './types';
-import { _ } from './i18n';
+import { _, ngettext } from './i18n';
 import { boardSettings } from './boardSettings';
 import { Clock } from './clock';
 import { Gating } from './gating';
 import { Promotion } from './promotion';
-import { dropIsValid, pocketView, updatePockets, Pockets, updateCommittedGates } from './pocket';
+import { pocketView, updatePockets, refreshPockets, Pockets, updateCommittedGates } from './pocket';
+import { updateMaterial } from './material';
 import { sound } from './sound';
-import { role2san, uci2cg, cg2uci, VARIANTS, IVariant, getPockets, getCounting, isHandicap, splitMusketeerFen } from './chess';
+import { role2san, uci2cg, cg2uci, VARIANTS, Variant, getPockets, getCounting, isHandicap, dropIsVal, splitMusketeerFen } from './chess';
 import { crosstableView } from './crosstable';
 import { chatMessage, chatView } from './chat';
 import { createMovelistButtons, updateMovelist, updateResult, selectMove } from './movelist';
@@ -29,34 +31,92 @@ import { renderRdiff } from './profile'
 import { player } from './player';
 import { updateCount, updatePoint } from './info';
 import { notify } from './notification';
+import { Clocks, MsgBoard, MsgChat, MsgCtable, MsgFullChat, MsgGameEnd, MsgGameNotFound, MsgMove, MsgNewGame, MsgShutdown, MsgSpectators, MsgUserConnected, RDiffs, Step } from "./messages";
+import { PyChessModel } from "./main";
 
 const patch = init([klass, attributes, properties, listeners]);
 
 let rang = false;
+
+interface MsgUserDisconnected {
+    username: string;
+}
+
+interface MsgUserPresent {
+    username: string;
+}
+
+interface MsgMoreTime {
+    username: string;
+}
+
+interface MsgDrawOffer {
+	message: string;
+    username: string;
+}
+
+interface MsgDrawRejected {
+	message: string;
+}
+
+interface MsgRematchOffer {
+	message: string;
+    username: string;
+}
+
+interface MsgRematchRejected {
+	message: string;
+}
+
+interface MsgCount {
+	message: string;
+}
+
+interface MsgSetup {
+	fen: cg.FEN;
+	color: cg.Color;
+}
+
+interface MsgGameStart {
+	gameId: string;
+}
+
+interface MsgViewRematch {
+	gameId: string;
+}
+
+interface MsgUpdateTV {
+	gameId: string;
+}
+
+interface MsgBerserk {
+	color: string;
+}
 
 export default class RoundController {
     model;
     sock;
     chessground: Api;
     fullfen: string;
+    username: string;
     wplayer: string;
     bplayer: string;
     base: number;
     inc: number;
     byoyomi: boolean;
     byoyomiPeriod: number;
-    mycolor: Color;
-    oppcolor: Color;
-    turnColor: Color;
+    mycolor: cg.Color;
+    oppcolor: cg.Color;
+    turnColor: cg.Color;
     clocks: [Clock, Clock];
-    clocktimes;
+    clocktimes: Clocks;
     expirations: [VNode | HTMLElement, VNode | HTMLElement];
     expiStart: number;
     firstmovetime: number;
     tournamentGame: boolean;
     clockOn: boolean;
     gameId: string;
-    variant: IVariant;
+    variant: Variant;
     chess960: boolean;
     hasPockets: boolean;
     pockets: Pockets;
@@ -66,74 +126,105 @@ export default class RoundController {
     vplayer1: VNode;
     vgate0: VNode;
     vgate1: VNode;
+    vmaterial0: VNode;
+    vmaterial1: VNode;
     vmiscInfoW: VNode;
     vmiscInfoB: VNode;
     vpng: VNode;
     vmovelist: VNode | HTMLElement;
+    vdialog: VNode;
     gameControls: VNode;
     moveControls: VNode;
     ctableContainer: VNode | HTMLElement;
     gating: Gating;
     promotion: Promotion;
-    dests: Dests;
+    dests: cg.Dests; // stores all possible moves for all pieces of the player whose turn it is currently
     promotions: string[];
-    lastmove: Key[];
-    premove: {orig: Key, dest: Key, metadata?: SetPremoveMetadata} | null;
-    predrop: {role: Role, key: Key} | null;
+    lastmove: cg.Key[];
+    premove: {orig: cg.Key, dest: cg.Key, metadata?: cg.SetPremoveMetadata} | null;
+    predrop: {role: cg.Role, key: cg.Key} | null;
     preaction: boolean;
     result: string;
     flip: boolean;
     spectator: boolean;
+    berserkable: boolean;
     settings: boolean;
     tv: boolean;
     status: number;
-    steps;
+    steps: Step[];
     pgn: string;
     ply: number;
     players: string[];
     titles: string[];
     ratings: string[];
-//    clickDrop: Piece | undefined;
-//    clickDropEnabled: boolean;
     animation: boolean;
-    showDests: boolean;
+    showDests: boolean; // TODO:not sure what is the point of this? doesn't chessground (especially now) have plenty of booleans like this for all kind of dests anyway?
     blindfold: boolean;
     handicap: boolean;
-    autoqueen: boolean;
+    autoPromote: boolean;
+    materialDifference: boolean;
     setupFen: string;
-    prevPieces: Pieces;
+    prevPieces: cg.Pieces;
     focus: boolean;
     committedGates: any;
     hasCommittedGates: boolean;
+    finishedGame: boolean;
+    lastMaybeSentMsgMove: MsgMove; // Always store the last "move" message that was passed for sending via websocket.
+                          // In case of bad connection, we are never sure if it was sent (thus the name)
+                          // until a "board" message from server is received from server that confirms it.
+                          // So if at any moment connection drops, after reconnect we always resend it.
+                          // If server received and processed it the first time, it will just ignore it
 
-    constructor(el, model) {
+    constructor(el: HTMLElement, model: PyChessModel) {
         this.focus = !document.hidden;
         document.addEventListener("visibilitychange", () => {this.focus = !document.hidden});
         window.addEventListener('blur', () => {this.focus = false});
         window.addEventListener('focus', () => {this.focus = true});
 
-        const onOpen = (evt) => {
+        const onOpen = (evt: Event) => {
             console.log("ctrl.onOpen()", evt);
+            if ( this.lastMaybeSentMsgMove  && this.lastMaybeSentMsgMove.ply === this.ply + 1 ) {
+                // if this.ply === this.lastMaybeSentMsgMove.ply it would mean the move message was received by server and it has replied with "board" message, confirming and updating the state, including this.ply
+                // since they are not equal, but also one ply behind, means we should try to re-send it
+                try {
+                    console.log("resending unsent message ", this.lastMaybeSentMsgMove);
+                    this.doSend(this.lastMaybeSentMsgMove);
+                } catch (e) {
+                    console.log("could not even REsend unsent message ", this.lastMaybeSentMsgMove)
+                }
+            }
+
             this.clocks[0].connecting = false;
             this.clocks[1].connecting = false;
+
+            const cl = document.body.classList; // removing the "reconnecting" message in lower left corner
+            cl.remove('offline');
+            cl.add('online');
+
             this.doSend({ type: "game_user_connected", username: this.model["username"], gameId: this.model["gameId"] });
         };
 
         const opts = {
             maxAttempts: 10,
-            onopen: e => onOpen(e),
-            onmessage: e => this.onMessage(e),
-            onreconnect: e => {
+            onopen: (e: Event) => onOpen(e),
+            onmessage: (e: MessageEvent) => this.onMessage(e),
+            onreconnect: (e: Event | CloseEvent) => {
+
                 this.clocks[0].connecting = true;
                 this.clocks[1].connecting = true;
                 console.log('Reconnecting in round...', e);
 
+                // relevant to the "reconnecting" message in lower left corner
+                document.body.classList.add('offline');
+                document.body.classList.remove('online');
+                document.body.classList.add('reconnected'); // this will trigger the animation once we get "online" class added back on reconnect
+
                 const container = document.getElementById('player1') as HTMLElement;
                 patch(container, h('i-side.online#player1', {class: {"icon": true, "icon-online": false, "icon-offline": true}}));
                 },
-            onmaximum: e => console.log('Stop Attempting!', e),
-            onclose: e => console.log('Closed!', e),
-            onerror: e => console.log('Error:', e),
+            onmaximum: (e: CloseEvent) => console.log('Stop Attempting!', e),
+            onclose: (e: CloseEvent) => console.log('Closed!', e),
+            onerror: (e: Event) => console.log('Error:', e),
             };
 
         const ws = (location.host.indexOf('pychess') === -1) ? 'ws://' : 'wss://';
@@ -144,6 +235,7 @@ export default class RoundController {
         this.variant = VARIANTS[model["variant"]];
         this.chess960 = model["chess960"] === 'True';
         this.fullfen = model["fen"];
+        this.username = model["username"];
         this.wplayer = model["wplayer"];
         this.bplayer = model["bplayer"];
         this.base = Number(model["base"]);
@@ -151,6 +243,7 @@ export default class RoundController {
         this.byoyomiPeriod = Number(model["byo"]);
         this.byoyomi = this.variant.timeControl === 'byoyomi';
         this.status = Number(model["status"]);
+        this.finishedGame = this.status >= 0;
         this.tv = model["tv"];
         this.steps = [];
         this.pgn = "";
@@ -158,13 +251,13 @@ export default class RoundController {
 
         this.flip = false;
         this.settings = true;
-//        this.clickDropEnabled = true;
         this.animation = localStorage.animation === undefined ? true : localStorage.animation === "true";
         this.showDests = localStorage.showDests === undefined ? true : localStorage.showDests === "true";
         this.blindfold = localStorage.blindfold === undefined ? false : localStorage.blindfold === "true";
-        this.autoqueen = localStorage.autoqueen === undefined ? false : localStorage.autoqueen === "true";
+        this.autoPromote = localStorage.autoPromote === undefined ? false : localStorage.autoPromote === "true";
+        this.materialDifference = localStorage.materialDifference === undefined ? false : localStorage.materialDifference === "true";
 
-        this.spectator = this.model["username"] !== this.wplayer && this.model["username"] !== this.bplayer;
+        this.spectator = this.username !== this.wplayer && this.username !== this.bplayer;
         this.hasPockets = this.variant.pocket;
         this.handicap = this.variant.alternateStart ? Object.keys(this.variant.alternateStart!).some(alt => isHandicap(alt) && this.variant.alternateStart![alt] === this.fullfen) : false;
 
@@ -175,8 +268,8 @@ export default class RoundController {
             this.mycolor = 'white';
             this.oppcolor = 'black';
         } else {
-            this.mycolor = this.model["username"] === this.wplayer ? 'white' : 'black';
-            this.oppcolor = this.model["username"] === this.wplayer ? 'black' : 'white';
+            this.mycolor = this.username === this.wplayer ? 'white' : 'black';
+            this.oppcolor = this.username === this.wplayer ? 'black' : 'white';
         }
 
         // players[0] is top player, players[1] is bottom player
@@ -210,6 +303,9 @@ export default class RoundController {
             this.setCommittedGate(0, mfen[1]);
             this.setCommittedGate(1, mfen[2]);
         }
+        const berserkId = (this.mycolor === "white") ? "wberserk" : "bberserk";
+        // Not berserked yet, but allowed to do it
+        this.berserkable = !this.spectator && this.tournamentGame && this.base > 0 && this.model[berserkId] !== 'True';
         this.turnColor = parts[1] === "w" ? "white" : "black";
 
         this.steps.push({
@@ -221,13 +317,15 @@ export default class RoundController {
 
         this.chessground = Chessground(el, {
             fen: fen_placement,
-            variant: this.variant.name as Variant,
+            variant: this.variant.name as cg.Variant,
             geometry: this.variant.geometry,
-            notation: (this.variant.name === 'janggi') ? Notation.JANGGI : Notation.DEFAULT, // TODO make this more generic / customisable
+            chess960: this.chess960,
+            notation: (this.variant.name === 'janggi') ? cg.Notation.JANGGI : cg.Notation.DEFAULT, // TODO make this more generic / customisable
             orientation: this.mycolor,
             turnColor: this.turnColor,
             autoCastle: this.variant.name !== 'cambodian', // TODO make more generic
             animation: { enabled: this.animation },
+            addDimensionsCssVars: true,
         });
 
         if (this.spectator) {
@@ -269,6 +367,11 @@ export default class RoundController {
                     move: this.onMove(),
                     dropNewPiece: this.onDrop(),
                     select: this.onSelect(),
+                },
+                dropmode: {
+                    events: {
+                        cancel: this.onCancelDropMode()
+                    }
                 }
             });
         }
@@ -295,6 +398,13 @@ export default class RoundController {
             const gate1 = document.getElementById('gate1') as HTMLElement;
             updateCommittedGates(this, gate0, gate1);
         }
+        if (this.variant.materialDifference) {
+            const material0 = document.querySelector('.material-top') as HTMLElement;
+            const material1 = document.querySelector('.material-bottom') as HTMLElement;
+            updateMaterial(this, material0, material1);
+        }
+
+
         // initialize expirations
         this.expirations = [
             document.getElementById('expiration-top') as HTMLElement,
@@ -302,7 +412,7 @@ export default class RoundController {
         ];
 
         // initialize clocks
-        this.clocktimes = {};
+        // this.clocktimes = {};
         const c0 = new Clock(this.base, this.inc, this.byoyomiPeriod, document.getElementById('clock0') as HTMLElement, 'clock0');
         const c1 = new Clock(this.base, this.inc, this.byoyomiPeriod, document.getElementById('clock1') as HTMLElement, 'clock1');
         this.clocks = [c0, c1];
@@ -310,20 +420,38 @@ export default class RoundController {
         this.clocks[1].onTick(this.clocks[1].renderTime);
 
         const onMoreTime = () => {
-            // TODO: enable when this.flip is true
             if (this.model['wtitle'] === 'BOT' || this.model['btitle'] === 'BOT' || this.spectator || this.status >= 0 || this.flip) return;
-            this.clocks[0].setTime(this.clocks[0].duration + 15 * 1000);
+            const clockIdx = (this.flip) ? 1 : 0;
+            this.clocks[clockIdx].setTime(this.clocks[clockIdx].duration + 15 * 1000);
             this.doSend({ type: "moretime", gameId: this.gameId });
             const oppName = (this.model["username"] === this.wplayer) ? this.bplayer : this.wplayer;
             chatMessage('', oppName + _(' +15 seconds'), "roundchat");
         }
 
-        if (!this.spectator && model["rated"] != '1' && this.model['wtitle'] !== 'BOT' && this.model['btitle'] !== 'BOT') {
+        if (!this.spectator && model["rated"] !== '1' && this.model['wtitle'] !== 'BOT' && this.model['btitle'] !== 'BOT') {
             const container = document.getElementById('more-time') as HTMLElement;
             patch(container, h('div#more-time', [
                 h('button.icon.icon-plus-square', {
                     props: {type: "button", title: _("Give 15 seconds")},
                     on: { click: () => onMoreTime() }
+                })
+            ]));
+        }
+
+        const onBerserk = () => {
+            if (this.berserkable) {
+                this.berserkable = false;
+                this.berserk(this.mycolor);
+                this.doSend({ type: "berserk", gameId: this.gameId, color: this.mycolor });
+            }
+        }
+
+        if (this.berserkable && this.status < 0 && this.ply < 2) {
+            const container = document.getElementById('berserk1') as HTMLElement;
+            patch(container, h('div#berserk1', [
+                h('button.icon.icon-berserk', {
+                    props: {type: "button", title: _("Berserk")},
+                    on: { click: () => onBerserk() }
                 })
             ]));
         }
@@ -385,6 +513,8 @@ export default class RoundController {
         createMovelistButtons(this);
         this.vmovelist = document.getElementById('movelist') as HTMLElement;
 
+        this.vdialog = patch(document.getElementById('offer-dialog')!, h('div#offer-dialog', ""));
+
         patch(document.getElementById('roundchat') as HTMLElement, chatView(this, "roundchat"));
 
         boardSettings.ctrl = this;
@@ -411,6 +541,29 @@ export default class RoundController {
 
     getGround = () => this.chessground;
 
+    private berserk = (color: string) => {
+        let bclock;
+        if (!this.flip) {
+            bclock = this.mycolor === "black" ? 1 : 0;
+        } else {
+            bclock = this.mycolor === "black" ? 0 : 1;
+        }
+        const wclock = 1 - bclock
+        const clockIdx = (color === 'white') ? wclock : bclock;
+
+
+        this.clocks[clockIdx].increment = 0;
+        this.clocks[clockIdx].setTime(this.clocks[clockIdx].duration / 2);
+        sound.berserk();
+
+        const berserkId = (color === "white") ? "wberserk" : "bberserk";
+        const infoContainer = document.getElementById(berserkId) as HTMLElement;
+        if (infoContainer) patch(infoContainer, h('icon.icon-berserk'));
+
+        const container = document.getElementById(`berserk${clockIdx}`) as HTMLElement;
+        patch(container, h(`div#berserk${clockIdx}.berserked`, [h('button.icon.icon-berserk')]));
+    }
+
     private abort = () => {
         // console.log("Abort");
         this.doSend({ type: "abort", gameId: this.gameId });
@@ -418,7 +571,35 @@ export default class RoundController {
 
     private draw = () => {
         // console.log("Draw");
-        this.doSend({ type: "draw", gameId: this.gameId });
+        if (confirm(_('Are you sure you want to draw?'))) {
+            this.doSend({ type: "draw", gameId: this.gameId });
+            this.setDialog(_("Draw offer sent"));
+        }
+    }
+
+    private rejectDrawOffer = () => {
+        this.doSend({ type: "reject_draw", gameId: this.gameId });
+        this.clearDialog();
+    }
+
+    private renderDrawOffer = () => {
+        this.vdialog = patch(this.vdialog, h('div#offer-dialog', [
+            h('div', { class: { reject: true }, on: { click: () => this.rejectDrawOffer() } }, h('i.icon.icon-abort.reject')),
+            h('div.text', _("Your opponent offers a draw")),
+            h('div', { class: { accept: true }, on: { click: () => this.draw() } }, h('i.icon.icon-check')),
+        ]));
+    }
+
+    private setDialog = (message: string) => {
+        this.vdialog = patch(this.vdialog, h('div#offer-dialog', [
+            h('div', { class: { reject: false } }),
+            h('div.text', message),
+            h('div', { class: { accept: false } }),
+        ]));
+    }
+
+    private clearDialog = () => {
+        this.vdialog = patch(this.vdialog, h('div#offer-dialog', []));
     }
 
     private resign = () => {
@@ -429,25 +610,27 @@ export default class RoundController {
     }
 
     private pass = () => {
-        let passKey = 'a0';
+        let passKey: cg.Key = 'a0';
         const pieces = this.chessground.state.pieces;
-        const dests = this.chessground.state.movable.dests;
-        for (const key in pieces) {
-            if (pieces[key]!.role === 'k-piece' && pieces[key]!.color === this.turnColor) {
-                if ((key in dests!) && (dests![key].indexOf(key as Key) >= 0)) passKey = key;
-            }
+        const dests = this.chessground.state.movable.dests!;
+        for (const [k, p] of pieces) {
+            if (p.role === 'k-piece' && p.color === this.turnColor)
+                if (dests.get(k)?.includes(k)) {
+                    passKey = k;
+                    break;
+                }
         }
         if (passKey !== 'a0') {
             // prevent calling pass() again by selectSquare() -> onSelect()
             this.chessground.state.movable.dests = undefined;
-            this.chessground.selectSquare(passKey as Key);
+            this.chessground.selectSquare(passKey);
             sound.moveSound(this.variant, false);
             this.sendMove(passKey, passKey, '');
         }
     }
 
     // Janggi second player (Red) setup
-    private onMsgSetup = (msg) => {
+    private onMsgSetup = (msg: MsgSetup) => {
         this.setupFen = msg.fen;
         this.chessground.set({fen: this.setupFen});
 
@@ -467,7 +650,7 @@ export default class RoundController {
 
         chatMessage('', message, "roundchat");
 
-        const switchLetters = (side) => {
+        const switchLetters = (side: number) => {
             const white = this.mycolor === 'white';
             const rank = (white) ? 9 : 0;
             const horse = (white) ? 'N' : 'n';
@@ -498,13 +681,20 @@ export default class RoundController {
         ]));
     }
 
-    private notifyMsg = (msg) => {
+    private notifyMsg = (msg: string) => {
+        if (this.status >= 0) return;
+
         const opp_name = this.model["username"] === this.wplayer ? this.bplayer : this.wplayer;
         const logoUrl = `${this.model["asset-url"]}/favicon/android-icon-192x192.png`;
         notify('pychess.org', {body: `${opp_name}\n${msg}`, icon: logoUrl});
     }
 
-    private onMsgGameStart = (msg) => {
+    private onMsgBerserk = (msg: MsgBerserk) => {
+        if (!this.spectator && msg['color'] === this.mycolor) return;
+        this.berserk(msg['color'])
+    }
+
+    private onMsgGameStart = (msg: MsgGameStart) => {
         // console.log("got gameStart msg:", msg);
         if (msg.gameId !== this.gameId) return;
         if (!this.spectator) {
@@ -513,20 +703,41 @@ export default class RoundController {
         }
     }
 
-    private onMsgNewGame = (msg) => {
+    private onMsgNewGame = (msg: MsgNewGame) => {
         window.location.assign(this.model["home"] + '/' + msg["gameId"]);
+    }
+
+    private onMsgViewRematch = (msg: MsgViewRematch) => {
+        const btns_after = document.querySelector('.btn-controls.after') as HTMLElement;
+        let rematch_button = h('button.newopp', { on: { click: () => window.location.assign(this.model["home"] + '/' + msg["gameId"]) } }, _("VIEW REMATCH"));
+        let rematch_button_location = btns_after!.insertBefore(document.createElement('div'), btns_after!.firstChild);
+        patch(rematch_button_location, rematch_button);
     }
 
     private rematch = () => {
         this.doSend({ type: "rematch", gameId: this.gameId, handicap: this.handicap });
+        this.setDialog(_("Rematch offer sent"));
     }
 
-    private newOpponent = (home) => {
+    private rejectRematchOffer = () => {
+        this.doSend({ type: "reject_rematch", gameId: this.gameId });
+        this.clearDialog();
+    }
+
+    private renderRematchOffer = () => {
+        this.vdialog = patch(this.vdialog, h('div#offer-dialog', [
+            h('div', { class: { reject: true }, on: { click: () => this.rejectRematchOffer() } }, h('i.icon.icon-abort.reject')),
+            h('div.text', _("Your opponent offers a rematch")),
+            h('div', { class: { accept: true }, on: { click: () => this.rematch() } }, h('i.icon.icon-check')),
+        ]));
+    }
+
+    private newOpponent = (home: string) => {
         this.doSend({"type": "leave", "gameId": this.gameId});
         window.location.assign(home);
     }
 
-    private analysis = (home) => {
+    private analysis = (home: string) => {
         window.location.assign(home + '/' + this.gameId + '?ply=' + this.ply.toString());
     }
 
@@ -538,7 +749,7 @@ export default class RoundController {
         window.location.assign(this.model["home"] + '/tournament/' + this.model["tournamentId"] + '/pause');
     }
 
-    private gameOver = (rdiffs) => {
+    private gameOver = (rdiffs: RDiffs) => {
         let container;
         container = document.getElementById('wrdiff') as HTMLElement;
         if (container) patch(container, renderRdiff(rdiffs["wrdiff"]));
@@ -556,7 +767,7 @@ export default class RoundController {
                 if (isOver) {
                     buttons.push(h('button.newopp', { on: { click: () => this.joinTournament() } },
                         [h('div', {class: {"icon": true, 'icon-play3': true} }, _("VIEW TOURNAMENT"))]));
-                } else{
+                } else {
                     buttons.push(h('button.newopp', { on: { click: () => this.joinTournament() } },
                         [h('div', {class: {"icon": true, 'icon-play3': true} }, _("BACK TO TOURNAMENT"))]));
                     buttons.push(h('button.newopp', { on: { click: () => this.pauseTournament() } },
@@ -571,24 +782,24 @@ export default class RoundController {
         patch(this.gameControls, h('div.btn-controls.after', buttons));
     }
 
-    private checkStatus = (msg) => {
+    private checkStatus = (msg: MsgBoard | MsgGameEnd) => {
         if (msg.gameId !== this.gameId) return;
         if (msg.status >= 0) {
             this.status = msg.status;
             this.result = msg.result;
             this.clocks[0].pause(false);
             this.clocks[1].pause(false);
-            this.dests = {};
+            this.dests = new Map();
 
-            if (this.result !== "*" && !this.spectator)
+            if (this.result !== "*" && !this.spectator && !this.finishedGame)
                 sound.gameEndSound(msg.result, this.mycolor);
 
-            this.gameOver(msg.rdiffs);
+            if ("rdiffs" in msg) this.gameOver(msg.rdiffs);
             selectMove(this, this.ply);
 
             updateResult(this);
 
-            if (msg.ct) {
+            if ("ct" in msg && msg.ct) {
                 this.ctableContainer = patch(this.ctableContainer, h('div#ctable-container'));
                 this.ctableContainer = patch(this.ctableContainer, crosstableView(msg.ct, this.gameId));
             }
@@ -600,10 +811,12 @@ export default class RoundController {
             if (this.tv) {
                 setInterval(() => {this.doSend({ type: "updateTV", gameId: this.gameId, profileId: this.model["profileid"] });}, 2000);
             }
+
+            this.clearDialog();
         }
     }
 
-    private onMsgUpdateTV = (msg) => {
+    private onMsgUpdateTV = (msg: MsgUpdateTV) => {
         if (msg.gameId !== this.gameId) {
             if (this.model["profileid"] !== "") {
                 window.location.assign(this.model["home"] + '/@/' + this.model["profileid"] + '/tv');
@@ -615,18 +828,35 @@ export default class RoundController {
         }
     }
 
-    private onMsgBoard = (msg) => {
+    private onMsgBoard = (msg: MsgBoard) => {
         if (msg.gameId !== this.gameId) return;
 
         const pocketsChanged = this.hasPockets && (getPockets(this.fullfen) !== getPockets(msg.fen));
 
         // console.log("got board msg:", msg);
-        const latestPly = (this.ply === -1 || msg.ply === this.ply + 1);
+        let latestPly;
+        if (this.spectator) {
+            // Fix https://github.com/gbtami/pychess-variants/issues/687
+            latestPly = (this.ply === -1 || msg.ply === this.ply + 1);
+        } else {
+            latestPly = (this.ply === -1 || msg.ply >= this.ply + 1); // when receiving a board msg with full list of moves (aka steps) after reconnecting
+                                                                        // its ply might be ahead with 2 ply - our move that failed to get confirmed
+                                                                        // because of disconnect and then also opp's reply to it, that we didn't
+                                                                        // receive while offline. Not sure if it could be ahead with more than 2 ply
+        }
         if (latestPly) this.ply = msg.ply;
 
         if (this.ply === 0 && this.variant.name !== 'janggi') {
             this.expiStart = Date.now();
             setTimeout(this.showExpiration, 350);
+        }
+
+        if (this.ply >= 2) {
+            const container0 = document.getElementById('berserk0') as HTMLElement;
+            if (container0) patch(container0, h('div#berserk0', ''));
+
+            const container1 = document.getElementById('berserk1') as HTMLElement;
+            if (container1) patch(container1, h('div#berserk1', ''));
         }
 
         if (this.ply === 1 || this.ply === 2) {
@@ -644,21 +874,62 @@ export default class RoundController {
             // When castling with gating is possible 
             // e1g1, e1g1h, e1g1e, h1e1h, h1e1e all will be offered by moving our king two squares
             // so we filter out rook takes king moves (h1e1h, h1e1e) from dests
-            for (const orig of Object.keys(msg.dests)) {
-                const movingPiece = this.chessground.state.pieces[orig];
+            for (const orig in msg.dests) {
+                if (orig[1] !== '@') {
+                const movingPiece = this.chessground.state.pieces.get(orig as cg.Key);
                 if (movingPiece !== undefined && movingPiece.role === "r-piece") {
                     msg.dests[orig] = msg.dests[orig].filter(x => {
-                        const destPiece = this.chessground.state.pieces[x];
+                        const destPiece = this.chessground.state.pieces.get(x);
                         return destPiece === undefined || destPiece.role !== 'k-piece';
                     });
                 }
+                }
             }
         }
-        this.dests = (msg.status < 0) ? msg.dests : {};
+        const parts = msg.fen.split(" ");
+        this.turnColor = parts[1] === "w" ? "white" : "black";
+
+        this.dests = (msg.status < 0) ? new Map(Object.entries(msg.dests)) : new Map();
+
+        // TODO: this logic ideally belongs in chessground somehow i feel - but where can i put it on turn change and also it depends now on this.dests
+        //       as far as i can tell the analogous logic for setting up move/pre-move destinations is in state.ts->configure->call to setSelected
+        if (this.mycolor === this.turnColor) {
+            // when turn gets mine, if a piece is being dragged or is selected, then pre-drop dests should be hidden and replaced by dests
+            this.chessground.state.predroppable.dropDests=undefined; // always clean up predrop dests when my turn starts
+
+            const pdrole : cg.Role | undefined =
+                this.chessground.state.dropmode.active ? // TODO: Sometimes dropmode.piece is not cleaned-up so best check if active==true. Maybe clean it in drop.cancelDropMode() together with everything else there?
+                this.chessground.state.dropmode.piece?.role :
+                this.chessground.state.draggable.current?.piece.role ?
+                this.chessground.state.draggable.current?.piece.role :
+                undefined;
+
+            if (pdrole) { // is there a pocket piece that is being dragged or is selected for dropping
+                const dropDests = new Map([ [pdrole, this.dests.get(util.letterOf(pdrole, true) + "@" as cg.Orig)! ] ]);
+                this.chessground.set({
+                    dropmode: {
+                        dropDests: dropDests
+                    }
+                }); // if yes - show normal dests on turn start after the pre-drop dests were hidden
+            }
+        } else {
+            if (this.chessground.state.draggable.current) {
+                // we have just received a message from the server confirming it is not our turn (i.e. we must have just moved a piece)
+                // at the same time we are dragging a piece - either we are very fast and managed to grab another piece while
+                // waiting for server's message that confirm the move we just made, or the move we just made was a pre-move/pre-drop
+                // either way we have to init the predrop destinations so they can be highlighted
+                const dropDests = predrop(this.chessground.state.pieces, this.chessground.state.draggable.current.piece, this.chessground.state.geometry, this.chessground.state.variant);
+                this.chessground.set({
+                    predroppable: {
+                        dropDests: dropDests
+                    }
+                });
+            }
+        }
 
         // list of legal promotion moves
         this.promotions = msg.promo;
-        this.clocktimes = msg.clocks;
+        this.clocktimes = msg.clocks || this.clocktimes;
 
         const parts = msg.fen.split(" ");
         var fen_board = parts[0];
@@ -714,28 +985,27 @@ export default class RoundController {
             if (container) patch(container, h('div'));
         }
 
-        let lastMove = msg.lastMove;
-        if (lastMove !== null) {
-            lastMove = uci2cg(lastMove);
+        let lastMove: cg.Key[] | null = null;
+        if (msg.lastMove !== null) {
+            const lastMoveStr = uci2cg(msg.lastMove);
             // drop lastMove causing scrollbar flicker,
             // so we remove from part to avoid that
-            lastMove = lastMove.includes('@') ? [lastMove.slice(-2)] : [lastMove.slice(0, 2), lastMove.slice(2, 4)];
+            lastMove = lastMoveStr.includes('@') ? [lastMoveStr.slice(-2) as cg.Key] : [lastMoveStr.slice(0, 2) as cg.Key, lastMoveStr.slice(2, 4) as cg.Key];
         }
-        // save capture state before updating chessground
-        // 960 king takes rook castling is not capture
+
         const step = this.steps[this.steps.length - 1];
         let capture = false;
         if (step.san !== undefined) {
-            capture = (lastMove !== null) && ((this.chessground.state.pieces[lastMove[1]] && step.san.slice(0, 2) !== 'O-') || (step.san.slice(1, 2) === 'x'));
+            capture = step.san.slice(1, 2) === 'x';
         }
-        // console.log("CAPTURE ?", capture, lastMove, step);
+
         if (lastMove !== null && (this.turnColor === this.mycolor || this.spectator)) {
-            sound.moveSound(this.variant, capture);
+            if (!this.finishedGame) sound.moveSound(this.variant, capture);
         } else {
             lastMove = [];
         }
         this.checkStatus(msg);
-        if (!this.spectator && msg.check) {
+        if (!this.spectator && msg.check && !this.finishedGame) {
             sound.check();
         }
 
@@ -752,7 +1022,7 @@ export default class RoundController {
 
         this.clocks[0].pause(false);
         this.clocks[1].pause(false);
-        if (this.byoyomi) {
+        if (this.byoyomi && msg.byo) {
             this.clocks[oppclock].byoyomiPeriod = msg.byo[(this.oppcolor === 'white') ? 0 : 1];
             this.clocks[myclock].byoyomiPeriod = msg.byo[(this.mycolor === 'white') ? 0 : 1];
         }
@@ -815,19 +1085,22 @@ export default class RoundController {
                     // console.log('OPP CLOCK  STARTED');
                 }
             }
-        };
+        }
+        updateMaterial(this, this.vmaterial0, this.vmaterial1);
     }
 
-    goPly = (ply) => {
+    goPly = (ply: number) => {
         const step = this.steps[ply];
         if (step === undefined) return;
-        let move = step['move'];
+
+        let move : cg.Key[] | undefined = undefined;
         let capture = false;
-        if (move !== undefined) {
-            move = uci2cg(move);
-            move = move.includes('@') ? [move.slice(-2)] : [move.slice(0, 2), move.slice(2, 4)];
+        if (step['move'] !== undefined) {
+            const moveStr = uci2cg(step['move']);
+            move = moveStr.includes('@') ? [moveStr.slice(-2) as cg.Key] : [moveStr.slice(0, 2) as cg.Key, moveStr.slice(2, 4) as cg.Key];
             // 960 king takes rook castling is not capture
-            capture = (this.chessground.state.pieces[move[move.length - 1]] !== undefined && step.san.slice(0, 2) !== 'O-') || (step.san.slice(1, 2) === 'x');
+            // TODO Defer this logic to ffish.js
+            capture = (this.chessground.state.pieces.get(move[move.length - 1]) !== undefined && !!step.san && step.san.slice(0, 2) !== 'O-') || (!!step.san && step.san.slice(1, 2) === 'x');
         }
 
         this.chessground.set({
@@ -843,6 +1116,7 @@ export default class RoundController {
         });
         this.fullfen = step.fen;
         updatePockets(this, this.vpocket0, this.vpocket1);
+        updateMaterial(this, this.vmaterial0, this.vmaterial1);
 
         if (this.variant.counting) {
             this.updateCount(step.fen);
@@ -858,12 +1132,12 @@ export default class RoundController {
         this.ply = ply
     }
 
-    private doSend = (message: JSONObject) => {
+    doSend = (message: JSONObject) => {
         // console.log("---> doSend():", message);
         this.sock.send(JSON.stringify(message));
     }
 
-    sendMove = (orig, dest, promo) => {
+    sendMove = (orig: cg.Orig, dest: cg.Key, promo: string) => {
         // pause() will add increment!
         const oppclock = !this.flip ? 0 : 1
         const myclock = 1 - oppclock;
@@ -882,14 +1156,18 @@ export default class RoundController {
         }
         const wclock = 1 - bclock
 
-        const increment = (this.inc > 0 && this.ply >= 2 && !this.byoyomi) ? this.inc * 1000 : 0;
+        let increment = 0;
+        if (this.model[(this.mycolor === "white") ? "wberserk" : "bberserk"] !== 'True') {
+            increment = (this.inc > 0 && this.ply >= 2 && !this.byoyomi) ? this.inc * 1000 : 0;
+        }
 
         const bclocktime = (this.mycolor === "black" && this.preaction) ? this.clocktimes.black + increment: this.clocks[bclock].duration;
         const wclocktime = (this.mycolor === "white" && this.preaction) ? this.clocktimes.white + increment: this.clocks[wclock].duration;
 
         clocks = {movetime: (this.preaction) ? 0 : movetime, black: bclocktime, white: wclocktime};
 
-        this.doSend({ type: "move", gameId: this.gameId, move: move, clocks: clocks, ply: this.ply + 1 });
+        this.lastMaybeSentMsgMove = { type: "move", gameId: this.gameId, move: move, clocks: clocks, ply: this.ply + 1 };
+        this.doSend(this.lastMaybeSentMsgMove as JSONObject);
 
         if (this.clockOn) this.clocks[oppclock].start();
     }
@@ -902,7 +1180,7 @@ export default class RoundController {
         this.doSend({ type: "count", gameId: this.gameId, mode: "stop" });
     }
 
-    private updateCount = (fen) => {
+    private updateCount = (fen: cg.FEN) => {
         [this.vmiscInfoW, this.vmiscInfoB] = updateCount(fen, this.vmiscInfoW, this.vmiscInfoB);
         const countButton = document.getElementById('count') as HTMLElement;
         if (countButton) {
@@ -918,29 +1196,27 @@ export default class RoundController {
         }
     }
 
-    private updatePoint = (fen) => {
+    private updatePoint = (fen: cg.FEN) => {
         [this.vmiscInfoW, this.vmiscInfoB] = updatePoint(fen, this.vmiscInfoW, this.vmiscInfoB);
     }
 
     private onMove = () => {
-        return (orig, dest, capturedPiece) => {
+        return (orig: cg.Key, dest: cg.Key, capturedPiece: cg.Piece) => {
             console.log("   ground.onMove()", orig, dest, capturedPiece);
-            sound.moveSound(this.variant, capturedPiece);
+            sound.moveSound(this.variant, !!capturedPiece);
         }
     }
 
     private onDrop = () => {
-        return (piece, dest) => {
+        return (piece: cg.Piece, dest: cg.Key) => {
             // console.log("ground.onDrop()", piece, dest);
-            if (dest != 'a0' && piece.role && dropIsValid(this.dests, piece.role, dest)) {
+            if (dest !== 'a0' && piece.role && dropIsValid(this.dests, piece.role, dest)) {
                 sound.moveSound(this.variant, false);
-//            } else if (this.clickDropEnabled) {
-//                this.clickDrop = piece;
             }
         }
     }
 
-    private setPremove = (orig: Key, dest: Key, metadata?: SetPremoveMetadata) => {
+    private setPremove = (orig: cg.Key, dest: cg.Key, metadata?: cg.SetPremoveMetadata) => {
         this.premove = { orig, dest, metadata };
         // console.log("setPremove() to:", orig, dest, meta);
     }
@@ -950,7 +1226,7 @@ export default class RoundController {
         this.preaction = false;
     }
 
-    private setPredrop = (role: Role, key: Key) => {
+    private setPredrop = (role: cg.Role, key: cg.Key) => {
         this.predrop = { role, key };
         // console.log("setPredrop() to:", role, key);
     }
@@ -975,35 +1251,37 @@ export default class RoundController {
         this.predrop = null;
     }
 
-    private onUserMove = (orig, dest, meta) => {
+    private onUserMove = (orig: cg.Key, dest: cg.Key, meta: cg.MoveMetadata) => {
         this.preaction = meta.premove === true;
         // chessground doesn't knows about ep, so we have to remove ep captured pawn
         const pieces = this.chessground.state.pieces;
         // console.log("ground.onUserMove()", orig, dest, meta);
-        let moved = pieces[dest];
+        let moved = pieces.get(dest);
         // Fix king to rook 960 castling case
-        if (moved === undefined) moved = {role: 'k-piece', color: this.mycolor} as Piece;
-        if (meta.captured === undefined && moved !== undefined && moved.role === "p-piece" && orig[0] != dest[0] && this.variant.enPassant) {
-            const pos = key2pos(dest),
-            pawnPos: Pos = [pos[0], pos[1] + (this.mycolor === 'white' ? -1 : 1)];
-            const diff: PiecesDiff = {};
-            diff[pos2key(pawnPos)] = undefined;
+        if (moved === undefined) moved = {role: 'k-piece', color: this.mycolor} as cg.Piece;
+        if (meta.captured === undefined && moved !== undefined && moved.role === "p-piece" && orig[0] !== dest[0] && this.variant.enPassant) {
+            const pos = util.key2pos(dest),
+            pawnPos: cg.Pos = [pos[0], pos[1] + (this.mycolor === 'white' ? -1 : 1)];
+            const diff: cg.PiecesDiff = new Map();
+            diff.set(util.pos2key(pawnPos), undefined);
             this.chessground.setPieces(diff);
-            meta.captured = {role: "p-piece"};
+            meta.captured = {role: "p-piece", color: moved.color=== "white"? "black": "white"/*or could get it from pieces[pawnPos] probably*/};
         }
         // increase pocket count
         if (this.variant.drop && meta.captured) {
             let role = meta.captured.role
             if (meta.captured.promoted)
-                role = (this.variant.promotion === 'shogi' || this.variant.promotion === 'kyoto') ? meta.captured.role.slice(1) as Role : "p-piece";
+                role = (this.variant.promotion === 'shogi' || this.variant.promotion === 'kyoto') ? meta.captured.role.slice(1) as cg.Role : "p-piece";
 
             let position = (this.turnColor === this.mycolor) ? "bottom": "top";
             if (this.flip) position = (position === "top") ? "bottom" : "top";
-            if (position === "top") {
-                this.pockets[0][role]++;
+            if (position === "top") { // TODO:this refreshes pockets similar to pocket.ts -> updatePockets() - consider moving all pocket related logic there maybe?
+                const pr = this.pockets[0][role];
+                if ( pr !== undefined ) this.pockets[0][role] = pr + 1;
                 this.vpocket0 = patch(this.vpocket0, pocketView(this, this.turnColor, "top"));
             } else {
-                this.pockets[1][role]++;
+                const pr = this.pockets[1][role];
+                if ( pr !== undefined ) this.pockets[1][role] = pr + 1;
                 this.vpocket1 = patch(this.vpocket1, pocketView(this, this.turnColor, "bottom"));
             }
         }
@@ -1014,14 +1292,18 @@ export default class RoundController {
 
         //  gating elephant/hawk
         if (this.variant.gate) {
-            if (!this.promotion.start(moved.role, orig, dest) && !this.gating.start(this.fullfen, orig, dest)) this.sendMove(orig, dest, '');
+            if (!this.promotion.start(moved.role, orig, dest, meta.ctrlKey) && !this.gating.start(this.fullfen, orig, dest)) this.sendMove(orig, dest, '');
         } else {
-            if (!this.promotion.start(moved.role, orig, dest)) this.sendMove(orig, dest, '');
+            if (!this.promotion.start(moved.role, orig, dest, meta.ctrlKey)) this.sendMove(orig, dest, '');
             this.preaction = false;
         }
+
+        this.clearDialog();
     }
 
-    private onUserDrop = (role, dest, meta) => {
+    private onUserDrop = (role: cg.Role, dest: cg.Key, meta: cg.MoveMetadata) => {
+
+        cancelDropMode(this.chessground.state); // drop of new piece was actually performed - lets set dropmode to not active. Maybe this logic better belongs in chessgroudx?
         this.preaction = meta.predrop === true;
         // console.log("ground.onUserDrop()", role, dest, meta);
         // decrease pocket count
@@ -1029,22 +1311,23 @@ export default class RoundController {
             let position = (this.turnColor === this.mycolor) ? "bottom": "top";
             if (this.flip) position = (position === "top") ? "bottom" : "top";
             if (position === "top") {
-                this.pockets[0][role]--;
+                const pr = this.pockets[0][role];
+                if ( pr !== undefined ) this.pockets[0][role] = pr - 1;
                 this.vpocket0 = patch(this.vpocket0, pocketView(this, this.turnColor, "top"));
             } else {
-                this.pockets[1][role]--;
+                const pr = this.pockets[1][role];
+                if ( pr !== undefined ) this.pockets[1][role] = pr - 1;
                 this.vpocket1 = patch(this.vpocket1, pocketView(this, this.turnColor, "bottom"));
             }
             if (this.variant.promotion === 'kyoto') {
-                if (!this.promotion.start(role, 'a0', dest)) this.sendMove(role2san(role) + "@", dest, '');
+                if (!this.promotion.start(role, 'a0', dest)) this.sendMove(role2san(role) + "@" as cg.DropOrig, dest, '');
             } else {
-                this.sendMove(role2san(role) + "@", dest, '')
+                this.sendMove(role2san(role) + "@" as cg.DropOrig, dest, '')
             }
             // console.log("sent move", move);
         } else {
             // console.log("!!! invalid move !!!", role, dest);
             // restore board
-//            this.clickDrop = undefined;
             this.chessground.set({
                 fen: this.fullfen,
                 lastMove: this.lastmove,
@@ -1061,49 +1344,51 @@ export default class RoundController {
     }
 
     private onSelect = () => {
-        return (key) => {
+        let lastTime = performance.now();
+        let lastKey: cg.Key = 'a0';
+        let timeout: ReturnType<typeof setTimeout>;
+        return (key: cg.Key) => {
             if (this.chessground.state.movable.dests === undefined) return;
 
-/* Removed to fix https://github.com/gbtami/pychess-variants/issues/549
-
-            // If drop selection was set dropDests we have to restore dests here
-            if (key != 'a0' && 'a0' in this.chessground.state.movable.dests) {
-                if (this.clickDropEnabled && this.clickDrop !== undefined && dropIsValid(this.dests, this.clickDrop.role, key)) {
-                    this.chessground.newPiece(this.clickDrop, key);
-                    this.onUserDrop(this.clickDrop.role, key, {predrop: this.predrop});
-                }
-                this.clickDrop = undefined;
-                //cancelDropMode(this.chessground.state);
-                this.chessground.set({ movable: { dests: this.dests }});
-            }
-*/
+            const curTime = performance.now();
 
             // Save state.pieces to help recognise 960 castling (king takes rook) moves
             // Shouldn't this be implemented in chessground instead?
             if (this.chess960 && this.variant.gate) {
-                this.prevPieces = Object.assign({}, this.chessground.state.pieces);
+                this.prevPieces = new Map(this.chessground.state.pieces);
             }
 
             // Janggi pass and Sittuyin in place promotion on Ctrl+click
-            if (this.chessground.state.stats.ctrlKey && 
-                (this.chessground.state.movable.dests[key]?.includes(key))
-                ) {
-                const piece = this.chessground.state.pieces[key];
-                if (this.variant.name === 'sittuyin') { // TODO make this more generic
-                    // console.log("Ctrl in place promotion", key);
-                    const pieces: Pieces = {};
-                    pieces[key] = {
-                        color: piece!.color,
-                        role: 'f-piece',
-                        promoted: true
-                    };
-                    this.chessground.setPieces(pieces);
-                    this.sendMove(key, key, 'f');
-                } else if (this.variant.pass && piece!.role === 'k-piece') {
-                    this.pass();
+            if (timeout && lastKey === key && curTime - lastTime < 500) {
+                if (this.chessground.state.movable.dests.get(key)?.includes(key)) {
+                    const piece = this.chessground.state.pieces.get(key);
+                    if (this.variant.name === 'sittuyin') { // TODO make this more generic
+                        // console.log("Ctrl in place promotion", key);
+                        const pieces: cg.Pieces = new Map();
+                        pieces.set(key, {
+                            color: piece!.color,
+                            role: 'f-piece',
+                            promoted: true
+                        });
+                        this.chessground.setPieces(pieces);
+                        this.sendMove(key, key, 'f');
+                    } else if (this.variant.pass && piece!.role === 'k-piece') {
+                        this.pass();
+                    }
                 }
+                clearTimeout(timeout);
+            } else {
+                timeout = setTimeout(() => {
+                    clearTimeout(timeout);
+                }, 500);
+                lastKey = key;
+                lastTime = curTime;
             }
         }
+    }
+
+    private onCancelDropMode = () => {
+        return () => { refreshPockets(this); }
     }
 
     private renderExpiration = () => {
@@ -1121,11 +1406,12 @@ export default class RoundController {
                 sound.lowTime();
                 rang = true;
             }
+            const secs: number = Math.floor(timeLeft / 1000);
             this.expirations[expi] = patch(this.expirations[expi], h('div#expiration-' + position + '.expiration',
                 {class:
                     {emerg, 'bar-glider': this.turnColor === this.mycolor}
                 },
-                [h('strong', Math.floor(timeLeft / 1000)), 'seconds to play the first move']
+                [ngettext('%1 second to play the first move', '%1 seconds to play the first move', secs)]
             ));
         }
     }
@@ -1136,7 +1422,7 @@ export default class RoundController {
         setTimeout(this.showExpiration, 250);
     }
 
-    private onMsgUserConnected = (msg) => {
+    private onMsgUserConnected = (msg: MsgUserConnected) => {
         this.model["username"] = msg["username"];
         if (this.spectator) {
             this.doSend({ type: "is_user_present", username: this.wplayer, gameId: this.gameId });
@@ -1145,7 +1431,7 @@ export default class RoundController {
             // we want to know lastMove and check status
             this.doSend({ type: "board", gameId: this.gameId });
         } else {
-            this.firstmovetime = msg.firstmovetime;
+            this.firstmovetime = msg.firstmovetime || this.firstmovetime;
 
             const opp_name = this.model["username"] === this.wplayer ? this.bplayer : this.wplayer;
             this.doSend({ type: "is_user_present", username: opp_name, gameId: this.gameId });
@@ -1161,12 +1447,12 @@ export default class RoundController {
         }
     }
 
-    private onMsgSpectators = (msg) => {
+    private onMsgSpectators = (msg: MsgSpectators) => {
         const container = document.getElementById('spectators') as HTMLElement;
         patch(container, h('under-left#spectators', _('Spectators: ') + msg.spectators));
     }
 
-    private onMsgUserPresent = (msg) => {
+    private onMsgUserPresent = (msg: MsgUserPresent) => {
         // console.log(msg);
         if (msg.username === this.players[0]) {
             const container = document.getElementById('player0') as HTMLElement;
@@ -1177,7 +1463,7 @@ export default class RoundController {
         }
     }
 
-    private onMsgUserDisconnected = (msg) => {
+    private onMsgUserDisconnected = (msg: MsgUserDisconnected) => {
         // console.log(msg);
         if (msg.username === this.players[0]) {
             const container = document.getElementById('player0') as HTMLElement;
@@ -1188,25 +1474,25 @@ export default class RoundController {
         }
     }
 
-    private onMsgChat = (msg) => {
+    private onMsgChat = (msg: MsgChat) => {
         if ((this.spectator && msg.room === 'spectator') || (!this.spectator && msg.room !== 'spectator') || msg.user.length === 0) {
-            chatMessage(msg.user, msg.message, "roundchat");
+            chatMessage(msg.user, msg.message, "roundchat", msg.time);
         }
     }
 
-    private onMsgFullChat = (msg) => {
+    private onMsgFullChat = (msg: MsgFullChat) => {
         // To prevent multiplication of messages we have to remove old messages div first
         patch(document.getElementById('messages') as HTMLElement, h('div#messages-clear'));
         // then create a new one
         patch(document.getElementById('messages-clear') as HTMLElement, h('div#messages'));
         msg.lines.forEach((line) => {
             if ((this.spectator && line.room === 'spectator') || (!this.spectator && line.room !== 'spectator') || line.user.length === 0) {
-                chatMessage(line.user, line.message, "roundchat");
+                chatMessage(line.user, line.message, "roundchat", line.time);
             }
         });
     }
 
-    private onMsgMoreTime = (msg) => {
+    private onMsgMoreTime = (msg: MsgMoreTime) => {
         chatMessage('', msg.username + _(' +15 seconds'), "roundchat");
         if (this.spectator) {
             if (msg.username === this.players[0]) {
@@ -1219,43 +1505,59 @@ export default class RoundController {
         }
     }
 
-    private onMsgOffer = (msg) => {
+    private onMsgDrawOffer = (msg: MsgDrawOffer) => {
         chatMessage("", msg.message, "roundchat");
+        if (!this.spectator && msg.username !== this.username) this.renderDrawOffer();
     }
 
-    private onMsgGameNotFound = (msg) => {
+    private onMsgDrawRejected = (msg: MsgDrawRejected) => {
+        chatMessage("", msg.message, "roundchat");
+        this.clearDialog();
+    }
+
+    private onMsgRematchOffer = (msg: MsgRematchOffer) => {
+        chatMessage("", msg.message, "roundchat");
+        if (!this.spectator && msg.username !== this.username) this.renderRematchOffer();
+    }
+
+    private onMsgRematchRejected = (msg: MsgRematchRejected) => {
+        chatMessage("", msg.message, "roundchat");
+        this.clearDialog();
+    }
+
+    private onMsgGameNotFound = (msg: MsgGameNotFound) => {
         alert(_("Requested game %1 not found!", msg['gameId']));
         window.location.assign(this.model["home"]);
     }
 
-    private onMsgShutdown = (msg) => {
+    private onMsgShutdown = (msg: MsgShutdown) => {
         alert(msg.message);
     }
 
-    private onMsgCtable = (ct, gameId) => {
-        if (ct !== "") {
+    private onMsgCtable = (msg: MsgCtable, gameId: string) => {
+        if (msg.ct) {
             this.ctableContainer = patch(this.ctableContainer, h('div#ctable-container'));
-            this.ctableContainer = patch(this.ctableContainer, crosstableView(ct, gameId));
+            this.ctableContainer = patch(this.ctableContainer, crosstableView(msg.ct, gameId));
         }
     }
 
-    private onMsgCount = (msg) => {
+    private onMsgCount = (msg: MsgCount) => {
         chatMessage("", msg.message, "roundchat");
         if (msg.message.endsWith("started")) {
             if (this.turnColor === 'white')
-                this.vmiscInfoW = patch(this.vmiscInfoW, h('div#count-white', '0/64'));
+                this.vmiscInfoW = patch(this.vmiscInfoW, h('div#misc-infow', '0/64'));
             else
-                this.vmiscInfoB = patch(this.vmiscInfoB, h('div#count-black', '0/64'));
+                this.vmiscInfoB = patch(this.vmiscInfoB, h('div#misc-infob', '0/64'));
         }
         else if (msg.message.endsWith("stopped")) {
             if (this.turnColor === 'white')
-                this.vmiscInfoW = patch(this.vmiscInfoW, h('div#count-white', ''));
+                this.vmiscInfoW = patch(this.vmiscInfoW, h('div#misc-infow', ''));
             else
-                this.vmiscInfoB = patch(this.vmiscInfoB, h('div#count-black', ''));
+                this.vmiscInfoB = patch(this.vmiscInfoB, h('div#misc-infob', ''));
         }
     }
 
-    private onMessage = (evt) => {
+    private onMessage = (evt: MessageEvent) => {
         // console.log("<+++ onMessage():", evt.data);
         const msg = JSON.parse(evt.data);
         switch (msg.type) {
@@ -1263,7 +1565,7 @@ export default class RoundController {
                 this.onMsgBoard(msg);
                 break;
             case "crosstable":
-                this.onMsgCtable(msg.ct, this.gameId);
+                this.onMsgCtable(msg, this.gameId);
                 break
             case "gameEnd":
                 this.checkStatus(msg);
@@ -1292,8 +1594,20 @@ export default class RoundController {
             case "new_game":
                 this.onMsgNewGame(msg);
                 break;
-            case "offer":
-                this.onMsgOffer(msg);
+            case "view_rematch":
+                this.onMsgViewRematch(msg);
+                break;
+            case "draw_offer":
+                this.onMsgDrawOffer(msg);
+                break;
+            case "draw_rejected":
+                this.onMsgDrawRejected(msg);
+                break;
+            case "rematch_offer":
+                this.onMsgRematchOffer(msg);
+                break;
+            case "rematch_rejected":
+                this.onMsgRematchRejected(msg);
                 break;
             case "moretime":
                 this.onMsgMoreTime(msg);
@@ -1315,6 +1629,9 @@ export default class RoundController {
                 break;
             case "count":
                 this.onMsgCount(msg);
+                break;
+            case "berserk":
+                this.onMsgBerserk(msg);
                 break;
         }
     }

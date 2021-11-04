@@ -1,5 +1,4 @@
 import asyncio
-import uvloop
 
 import argparse
 import gettext
@@ -9,6 +8,12 @@ import os
 from operator import neg
 from urllib.parse import urlparse
 from datetime import datetime, timezone
+from sys import platform
+
+if platform != "win32":
+    import uvloop
+else:
+    print("uvloop not installed")
 
 import jinja2
 from aiohttp import web
@@ -21,20 +26,21 @@ from pythongettext.msgfmt import PoSyntaxError
 
 from ai import BOT_task
 from broadcast import lobby_broadcast, round_broadcast
-from const import VARIANTS, STARTED, LANGUAGES, T_CREATED, T_STARTED
+from const import VARIANTS, STARTED, LANGUAGES, T_CREATED, T_STARTED, MAX_CHAT_LINES
 from generate_crosstable import generate_crosstable
 from generate_highscore import generate_highscore
 from generate_shield import generate_shield
 from glicko2.glicko2 import DEFAULT_PERF
 from routes import get_routes, post_routes
-from settings import MAX_AGE, SECRET_KEY, MONGO_HOST, MONGO_DB_NAME, FISHNET_KEYS, URI, static_url
-from seek import Seek
+from settings import DEV, MAX_AGE, SECRET_KEY, MONGO_HOST, MONGO_DB_NAME, FISHNET_KEYS, URI, static_url
 from user import User
 from tournaments import load_tournament
+from twitch import Twitch
 
 log = logging.getLogger(__name__)
 
-asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+if platform != "win32":
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 
 async def on_prepare(request, response):
@@ -42,7 +48,7 @@ async def on_prepare(request, response):
         # brotli compressed js
         response.headers["Content-Encoding"] = "br"
         return
-    elif request.path.startswith("/variant") or request.path.startswith("/news"):
+    elif request.path.startswith("/variants") or request.path.startswith("/news"):
         # Learn and News pages may have links to other sites
         response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
         return
@@ -95,11 +101,12 @@ async def init_state(app):
     }
     app["users"]["Random-Mover"].online = True
     app["lobbysockets"] = {}  # one dict only! {user.username: user.tournament_sockets, ...}
-    app["lobbychat"] = collections.deque([], 100)
+    app["lobbychat"] = collections.deque([], MAX_CHAT_LINES)
 
     app["tourneysockets"] = {}  # one dict per tournament! {tournamentId: {user.username: user.tournament_sockets, ...}, ...}
+    app["tourneynames"] = {}    # cache for profile game list page {tournamentId: tournament.name, ...}
     app["tournaments"] = {}
-    app["tourneychat"] = {}  # one deque per tournament! {tournamentId: collections.deque([], 100), ...}
+    app["tourneychat"] = {}  # one deque per tournament! {tournamentId: collections.deque([], MAX_CHAT_LINES), ...}
 
     app["seeks"] = {}
     app["games"] = {}
@@ -119,6 +126,10 @@ async def init_state(app):
     # last game played
     app["tv"] = None
 
+    app["twitch"] = Twitch(app)
+    if not DEV:
+        await app["twitch"].init_subscriptions()
+
     # fishnet active workers
     app["workers"] = set()
     # fishnet works
@@ -132,14 +143,6 @@ async def init_state(app):
         app["fishnet_monitor"][FISHNET_KEYS[key]] = collections.deque([], 50)
 
     rm = app["users"]["Random-Mover"]
-    for variant in VARIANTS:
-        variant960 = variant.endswith("960")
-        variant_name = variant[:-3] if variant960 else variant
-        byoyomi = variant.endswith("shogi") or variant in ("dobutsu", "gorogoro", "janggi", "shogun")
-        seek = Seek(rm, variant_name, base=5, inc=30 if byoyomi else 3, level=0, chess960=variant960, byoyomi_period=1 if byoyomi else 0)
-        app["seeks"][seek.id] = seek
-        rm.seeks[seek.id] = seek
-
     ai = app["users"]["Fairy-Stockfish"]
 
     asyncio.create_task(BOT_task(ai, app))
@@ -258,8 +261,8 @@ async def shutdown(app):
     for game in app["games"].values():
         await round_broadcast(game, app["users"], response, full=True)
 
-    # No need to wait in unit tests
-    if app["db"] is not None:
+    # No need to wait in dev mode and in unit tests
+    if not DEV and app["db"] is not None:
         print('......WAIT 25')
         await asyncio.sleep(25)
 

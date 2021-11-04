@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 
 from compress import C2V, V2C, C2R
-from const import CASUAL, RATED, ARENA, RR, SWISS, variant_display_name, T_STARTED, T_CREATED, SHIELD
+from const import CASUAL, RATED, ARENA, RR, SWISS, variant_display_name, T_STARTED, T_CREATED, T_FINISHED, T_ARCHIVED, SHIELD, VARIANTS, MAX_CHAT_LINES
 from newid import new_id
 from user import User
 
@@ -17,10 +17,11 @@ from misc import time_control_str
 log = logging.getLogger(__name__)
 
 
-async def create_tournament(app, username, form):
+async def create_or_update_tournament(app, username, form, tournament=None):
     variant = form["variant"]
     variant960 = variant.endswith("960")
     variant_name = variant[:-3] if variant960 else variant
+    rated = form.get("rated", "") == "1" and form["position"] == ""
     base = float(form["clockTime"])
     inc = int(form["clockIncrement"])
     bp = int(form["byoyomiPeriod"])
@@ -49,7 +50,7 @@ then must defend it during the next %s Shield tournament!
     data = {
         "name": name,
         "createdBy": username,
-        "rated": form["rated"] == "true" and form["position"] == "",
+        "rated": rated,
         "variant": variant_name,
         "chess960": variant960,
         "base": base,
@@ -63,7 +64,12 @@ then must defend it during the next %s Shield tournament!
         "fen": form["position"],
         "description": description,
     }
-    tournament = await new_tournament(app, data)
+    if tournament is None:
+        tournament = await new_tournament(app, data)
+    else:
+        # We want to update some data of the tournament created by new_tournament() befor
+        # upsert=True will do this update at the end of upsert_tournament_to_db()
+        await upsert_tournament_to_db(tournament, app)
 
     await tournament.broadcast_spotlight()
 
@@ -116,20 +122,19 @@ async def new_tournament(app, data):
 
     app["tournaments"][tid] = tournament
     app["tourneysockets"][tid] = {}
-    app["tourneychat"][tid] = collections.deque([], 100)
+    app["tourneychat"][tid] = collections.deque([], MAX_CHAT_LINES)
 
-    await insert_tournament_to_db(tournament, app)
+    await upsert_tournament_to_db(tournament, app)
 
     return tournament
 
 
-async def insert_tournament_to_db(tournament, app):
+async def upsert_tournament_to_db(tournament, app):
     # unit test app may have no db
     if app["db"] is None:
         return
 
-    document = {
-        "_id": tournament.id,
+    new_data = {
         "name": tournament.name,
         "d": tournament.description,
         "fr": tournament.frequency,
@@ -139,7 +144,6 @@ async def insert_tournament_to_db(tournament, app):
         "i": tournament.inc,
         "bp": tournament.byoyomi_period,
         "f": tournament.fen,
-        "s": tournament.status,
         "y": RATED if tournament.rated else CASUAL,
         "z": int(tournament.chess960),
         "system": tournament.system,
@@ -152,8 +156,37 @@ async def insert_tournament_to_db(tournament, app):
         "status": tournament.status,
     }
 
-    result = await app["db"].tournament.insert_one(document)
-    print("db insert tournament result %s" % repr(result.inserted_id))
+    try:
+        await app["db"].tournament.find_one_and_update({"_id": tournament.id}, {"$set": new_data}, upsert=True)
+    except Exception:
+        if app["db"] is not None:
+            log.error("Failed to save tournament data to mongodb!")
+
+
+async def get_winners(app, shield):
+    wi = {}
+
+    for variant in VARIANTS:
+        if variant.endswith("960"):
+            v = variant[:-3]
+            z = 1
+        else:
+            v = variant
+            z = 0
+
+        filter_cond = {"v": V2C[v], "z": z, "status": {"$in": [T_FINISHED, T_ARCHIVED]}}
+        if shield:
+            filter_cond["fr"] = SHIELD
+
+        winners = []
+        cursor = app["db"].tournament.find(filter_cond, sort=[("startsAt", -1)], limit=5)
+        async for doc in cursor:
+            print("---", doc)
+            winners.append((doc["winner"], doc["startsAt"].strftime("%Y.%m.%d"), doc["_id"]))
+
+        wi[variant] = winners
+
+    return wi
 
 
 async def get_latest_tournaments(app):
@@ -210,6 +243,26 @@ async def get_latest_tournaments(app):
     return (started, scheduled, completed)
 
 
+async def get_tournament_name(app, tournament_id):
+    """ Return Tournament name from app cache or from database """
+    if tournament_id in app["tourneynames"]:
+        return app["tourneynames"][tournament_id]
+
+    tournaments = app["tournaments"]
+    name = ""
+
+    if tournament_id in tournaments:
+        name = tournaments[tournament_id].name
+    else:
+        db = app["db"]
+        doc = await db.tournament.find_one({"_id": tournament_id})
+        if doc is not None:
+            name = doc["name"]
+
+    app["tourneynames"][tournament_id] = name
+    return name
+
+
 async def load_tournament(app, tournament_id):
     """ Return Tournament object from app cache or from database """
     db = app["db"]
@@ -252,7 +305,7 @@ async def load_tournament(app, tournament_id):
 
     tournaments[tournament_id] = tournament
     app["tourneysockets"][tournament_id] = {}
-    app["tourneychat"][tournament_id] = collections.deque([], 100)
+    app["tourneychat"][tournament_id] = collections.deque([], MAX_CHAT_LINES)
 
     tournament.nb_games_finished = doc.get("nbGames", 0)
     tournament.winner = doc.get("winner", "")
@@ -281,6 +334,7 @@ async def load_tournament(app, tournament_id):
         tournament.players[user].points = doc["p"]
         tournament.players[user].nb_games = doc["g"]
         tournament.players[user].nb_win = doc["w"]
+        tournament.players[user].nb_berserk = doc.get("b", 0),
         tournament.players[user].performance = doc["e"]
 
         if not withdrawn:
@@ -295,7 +349,7 @@ async def load_tournament(app, tournament_id):
     cursor = pairing_table.find({"tid": tournament_id})
     cursor.sort('d', 1)
 
-    w_win, b_win, draw = 0, 0, 0
+    w_win, b_win, draw, berserk = 0, 0, 0, 0
     async for doc in cursor:
         res = doc["r"]
         _id = doc["_id"]
@@ -304,8 +358,10 @@ async def load_tournament(app, tournament_id):
         wrating = doc["wr"]
         brating = doc["br"]
         date = doc["d"]
+        wberserk = doc.get("wb", False)
+        bberserk = doc.get("bb", False)
 
-        game_data = GameData(_id, users[wp], wrating, users[bp], brating, result, date)
+        game_data = GameData(_id, users[wp], wrating, users[bp], brating, result, date, wberserk, bberserk)
 
         tournament.players[users[wp]].games.append(game_data)
         tournament.players[users[bp]].games.append(game_data)
@@ -317,8 +373,14 @@ async def load_tournament(app, tournament_id):
         elif res == "c":
             draw += 1
 
+        if wberserk:
+            berserk += 1
+        if bberserk:
+            berserk += 1
+
     tournament.w_win = w_win
     tournament.b_win = b_win
     tournament.draw = draw
+    tournament.nb_berserk = berserk
 
     return tournament

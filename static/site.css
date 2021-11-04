@@ -41,6 +41,7 @@
     --red-text: Crimson;
     --gold-text: GoldenRod;
     --pink-text: Pink;
+    --gray-text: #808080;
     --modal-bg: #fff;
     --box-header: #f5f5f5;
     --button-new-game: linear-gradient(to bottom, #f5f5f5 0%, #ededed 100%);
@@ -55,13 +56,18 @@
     --btn-controls: #fff;
     --rematch: linear-gradient(to bottom, #f5f5f5 0%, #ededed 100%);
     --rematch-hover: #5FA1DE;
-    --link-color-blue: #1b78d0;
+    --link-color-blue: #004f98;
     --janggi-setup: #ccc;
     --border-color: #d9d9d9;
     --checkbox-bg: #a1c27c;
     --checkbox-border: #e3e3e3;
     --checkbox-checked: #7daa49;
     --post-hover: #ddebf8;
+    --vpanel-button: #fbfbfb;
+    --vpanel-button-hover: #fdfdfd;
+    --box-shadow-panel-btn: 0px 2px 3px #7b7b7b85; 
+    --chat-entry-border-top: #d9d9d9;
+    --chat-entry-bg: #fafaf9; 
 }
 [data-theme="dark"] {
     --dark-mode: 1;
@@ -72,7 +78,7 @@
     --bg-body: #161512 linear-gradient(to bottom, #2e2a24, #161512 116px) no-repeat;
     --bg-color0: #262421;
     --bg-color1: #2e2a24;
-    --bg-color2: #333333;
+    --bg-color2: #302e2c;
     --bg-seek: #2e2a24;
     --bg-meta: #302e2c;
     --bg-input: #24221e;
@@ -109,6 +115,12 @@
     --checkbox-bg: #3b5c16;
     --checkbox-border: #4f7a1d;
     --post-hover: #29353f;
+    --vpanel-button: #3c3a35;
+    --vpanel-button-hover: #464440;
+    --panel-link-hover: rgb(179, 179, 179);
+    --box-shadow-panel-btn: none;
+    --chat-entry-border-top: #404040;
+    --chat-entry-bg: #262421; 
 }
 [data-theme="dark"] .icon-black:before {
   content: "\63";
@@ -153,7 +165,6 @@ html {
     margin: 0;
     padding: 0;
 }
-
 body {
     margin: 0;
     color: var(--font-color);
@@ -209,6 +220,8 @@ header {
     position: relative;
     height: var(--site-header-height);
     z-index: 106;
+    max-width: 1800px;
+    margin: 0 auto;
 }
 
 iframe {
@@ -337,6 +350,8 @@ iframe {
     display: flex;
     flex-flow: column nowrap;
     justify-content: right;
+    overflow: hidden;
+    box-shadow: var(--base-shadow);
 }
 .sidebar-second{
     grid-area: table;
@@ -381,7 +396,7 @@ textarea {
     resize: none;
 }
 div.pgn {
-    width: calc(var(--cgwrapwidth));
+    width: calc(var(--cg-width));
 }
 #pgnpaste {
     width: 90%;
@@ -411,9 +426,52 @@ div.about, div.paste, div.news {
 div.patron, div.invite {
     width: 50%;
 }
+
 div.guide, div.news {
-  grid-area: content;
+    grid-area: content; 
 }
+
+div.guide, div.news, div.about {
+    max-width: 800px;
+    padding: 20px 40px;
+    font-size: 1.2em; 
+}
+
+div.guide h1, div.guide h2, div.guide h3 {
+    text-align: center; 
+}
+
+div.guide h1 {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+div.guide h1 img {
+    margin-right: 10px;
+}
+  
+div.guide h2, div.guide p, div.news h2, div.news p {
+    line-height: 1.8;
+}
+
+div.guide h2 {
+    font-size: 30px;
+    font-weight: 600;
+}
+
+div.guide h2, div.guide p {
+    padding: 1.2rem;
+}
+
+div.guide ul {
+    margin-left: 15px;
+}
+
+div.guide li {
+    margin: 5px 0px;
+}
+
 div.closed {
     width: 610px;
 }
@@ -435,6 +493,7 @@ posts {
     display: flex;
     flex-direction:column;
     background-color: var(--bg-color0);
+    line-height: 1.5; 
 }
 a.post {
     display: grid;
@@ -490,7 +549,7 @@ ul.guide li {
 }
 @media (max-width: 799px) and (orientation: portrait) {
     ul.guide {
-        margin-left: 4px;
+        margin: 4vmin;
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
         padding: 0;
@@ -564,7 +623,7 @@ ul.guide li {
 
 .hamburger {
     display: none;
-    width: 32px;
+    width: 100%;
 }
 
 @media (max-width: 799px) and (orientation: portrait) {
@@ -580,7 +639,6 @@ ul.guide li {
         transform: translateX(-100%);
         transition: transform 200ms;
         width: 20rem;
-        height: 3rem;
     }
     .hamburger {
         display: block;
@@ -748,7 +806,7 @@ div#result {
     border-top: 1px solid var(--bg-color2);
 }
 
-.lobby-button, .donate-button, button#request-analysis, button#import, button#paste-url {
+.lobby-button, .donate-button, button#request-analysis, button#import, button.paste-url {
     background-color: var(--bg-color2);
     border: none;
     color: var(--font-color);
@@ -767,8 +825,9 @@ div#result {
 }
 @media (max-width: 799px) and (orientation: portrait) {
     .lobby-button {
-        padding: 2px 2px;
-        margin: 2px 0 2px 0;
+        padding: 0.5em;
+        margin: 0.2em 0;
+    
     }
 }
 button#request-analysis, button#import, button.join, button.submit {
@@ -779,9 +838,9 @@ button#request-analysis, button#import, button.join, button.submit {
     color: White;
     background-color: var(--blue-hover);
 }
-button#paste-url {
+button.paste-url {
     padding: 4px;
-    margin: 2px 2px;
+    margin: 5px 5px;
     border-radius: 4px;
     color: White;
     background-color: var(--blue-hover);
@@ -842,7 +901,20 @@ button.newopp:hover,  button.analysis:hover {
     font-size: 14px;
     border-radius: 3px;
 }
-
+.game-info section:not(:last-child) {
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.33333vmin;
+    padding-bottom: 1.33333vmin;
+}
+.tourney .icon-trophy::before {
+    padding-right: 8px;
+}
+.tourney {
+    padding: 2px 6px;
+}
+.tourney a {
+    color: var(--link-color-blue);
+}
 div.info1.icon, div.info0.icon::before {
     opacity: 0.6;
 }
@@ -935,7 +1007,7 @@ player-title {
     margin-left:0.5em;
 }
 i-side, .icon-cloud-upload:before {
-    margin-right: .4em;
+    margin-right: 0px;
 }
 .icon-blue:before {
     content: "\62";
@@ -1053,14 +1125,16 @@ table#seeks-header, table#seeks {
 }
 #seeks-table {
     box-shadow: var(--base-shadow);
-    background-size: cover;
     background-position: center;
-    background-image: url('images/Background2.svg');
+    background-image: url('images/seek-bg.svg');
     background-color: var(--bg-seek);
     background-blend-mode: overlay;
+    background-size: 100% 100%;
+    width: 100%;
+    height: 100%;
 }
 #seeks-wrapper {
-    height: 550px;
+    height: 320px;
     overflow-y: scroll;
     -ms-overflow-style: scrollbar;
 }
@@ -1084,14 +1158,14 @@ table#seeks-header, table#seeks {
 }
 @media (max-width: 799px) and (orientation: portrait) {
     #seeks th, #seeks td {
-        padding: .5em 0 .5em 0;
+        font-weight: 300;
     }
 }
 #seeks thead th {
-    background: var(--bg-color2);
     position: sticky;
     top: 0;
     z-index: 2;
+    color: var(--button-text);
 }
 #seeks tbody tr {
     cursor: pointer;
@@ -1109,6 +1183,9 @@ table#seeks-header, table#seeks {
 #seekbuttons > button {
     color: var(--button-text);
     background: var(--button-new-game);
+    font-size: 1.1rem;
+    text-transform: uppercase; 
+    font-weight: 300;
 }
 #seekbuttons > button:hover {
     color: var(--button-text-hover);
@@ -1132,7 +1209,7 @@ table#seeks-header, table#seeks {
 /* Input fields */
 select, input {
     padding: 12px 20px;
-    margin: 8px 0;
+    margin: 0px;
     display: inline;
     border: 1px solid var(--input-border);
     box-sizing: border-box;
@@ -1240,6 +1317,15 @@ select, input {
     color: var(--font-color);
     background: var(--button-new-game);
 }
+#create-button {
+    margin-top: 1.2em;
+}
+#create-button > button {
+    color: var(--font-color);
+    background: var(--button-new-game);
+    text-transform: uppercase;
+    padding: 0.3em;
+}
 #btn-controls-top {
     grid-area: move-controls;
 }
@@ -1247,7 +1333,6 @@ div.btn-controls {
     grid-area: game-controls;
     display: flex;
     justify-content: space-between;
-    border-bottom: 1px solid var(--border-color);
 }
 div.btn-controls.after {
     grid-area: game-controls;
@@ -1275,6 +1360,9 @@ div.btn-controls.after {
     cursor: pointer;
 }
 
+button {
+    cursor: pointer;
+}
 button:disabled {
     color: var(--bg-color1);
 }
@@ -1324,11 +1412,11 @@ button:disabled {
 }
 @media (max-width: 799px) and (orientation: portrait) {
     .info-wrap0 {
-        grid-area: 3 / 1 / 3 / 2;
+        grid-area: 4 / 1 / 4 / 2;
         justify-self: flex-end;
     }
     .info-wrap1  {
-        grid-area: 7 / 1 / 7 / 2;
+        grid-area: 8 / 1 / 8 / 2;
         justify-self: flex-end;
     }
 }
@@ -1357,6 +1445,7 @@ round-player1 {
 .clock-wrap {
     display: flex;
     flex-direction: row;
+    flex-grow: 1;
 }
 #more-time {
     float: right;
@@ -1454,6 +1543,29 @@ button.icon::-moz-focus-inner {
     display: none;
 }
 
+/* Material */
+.material {
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+    align-self: center;
+    height: 40px;
+    line-height: 0;
+    white-space: nowrap;
+    box-sizing: inherit;
+    margin: 0;
+    padding: 0;
+}
+.material-top {
+    grid-area: mat-top;
+}
+.material-bottom {
+    grid-area: mat-bot;
+}
+.material.disabled {
+    height: 0px;
+}
+
 /* Playing color */
 button.icon {
     margin: 5px;
@@ -1503,9 +1615,28 @@ label {
     flex-direction: column;
     justify-content: center;
     background: var(--bg-color0);
-    box-shadow: var(--base-shadow);
     min-height: 15em;
     border-radius: 3px;
+}
+
+.chat .time {
+    display: inline-flex;
+    margin-right: 3px;
+    color: var(--gray-text);
+}
+
+.chat .discord-icon-container {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 3px;
+    width: 0.8em;
+    height: 0.55em;
+    background: white;
+    background-position: center;
+    transform: translateY(2px);
+}
+.chat .discord-icon {
+    fill: #5865F2;
 }
 
 user {
@@ -1513,11 +1644,13 @@ user {
     font-weight: bold;
 }
 div.chatroom {
-    border-bottom: 1px solid var(--bg-color2);
+    border-bottom: none;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: .2em 10px;
+    padding: .5em 10px;
+    letter-spacing: 0.011em;
+    font-weight: 300;
 }
 
 #checkbox {
@@ -1526,7 +1659,7 @@ div.chatroom {
     background: var(--bg-color2);
     xfloat: right;
     xmargin: revert;
-    padding: 0.6em;
+    padding: 0.5em;
     border-radius: 3px;
     border: 1px solid var(--checkbox-border);
     cursor: pointer;
@@ -1550,7 +1683,10 @@ li.message {
     overflow-wrap: word-break;
     word-break: break-word;
     padding-left: 6px;
+    padding-right: 6px;
     padding-bottom: 6px;
+    margin-top: 5px;
+    margin-bottom: 5px;
     font-size: .9em;
 }
 
@@ -1565,12 +1701,16 @@ li.message.server {
 #chat-entry {
     display: flex;
     order: 2;
-    border: 1px solid var(--bg-color2);
+    border: none; 
+    border-top: 1px solid var(--chat-entry-border-top);
     margin: 0;
-    padding: 3px;
+    padding: 5px 20px 4px 4px;
     margin-top: auto;
     color: var(--font-color);
-    background: var(--bg-color0);
+    background: var(--chat-entry-bg);
+    font-size: 13.6894; 
+    letter-spacing: 0.035em;
+    font-weight: 300;
 }
 #spectators {
     overflow-wrap: break-word
@@ -1589,7 +1729,7 @@ li.message.server {
     font-size:1.1em;
     align-items: center;
     align-content:flex-start;
-    background: var(--bg-color1);
+    background: var(--bg-color0);
 }
 move {
     line-height: 1.9em;
@@ -1762,10 +1902,10 @@ div#ctable-container {
     display: flex;
 }
 .pocket-top {
-    grid-area: mat-top;
+    grid-area: pocket-top;
 }
 .pocket-bot {
-    grid-area: mat-bot;
+    grid-area: pocket-bot;
 }
 @media (max-width: 799px) and (orientation: portrait) {
     .pocket.top {
@@ -1828,4 +1968,21 @@ div#ctable-container {
 }
 a#zen-button {
     display: none;
+}
+.shield-trophy {
+    display: block;
+    width: 67px;
+    height: 80px;
+    background: url(images/trophy/shield-gold.png) no-repeat;
+    background-size: contain;
+    font-family: 'pychess';
+    font-size: 40px;
+    line-height: 70px;
+    text-align: center;
+    color: #333 !important;
+    text-shadow: 0 0 6px #fff;
+    filter: drop-shadow(0 0 10px #d59020);
+}
+input:invalid {
+    border: 1px solid red;
 }

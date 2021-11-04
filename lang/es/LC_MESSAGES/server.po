@@ -12,7 +12,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2021-07-16 13:23+0200\n"
+"POT-Creation-Date: 2021-09-14 10:02+0200\n"
 "PO-Revision-Date: 2020-05-04 12:19+0000\n"
 "Last-Translator: Jose Doval Gonzalez <pepellou@gmail.com>, 2021\n"
 "Language-Team: Spanish (https://www.transifex.com/gbtami/teams/14790/es/)\n"
@@ -66,12 +66,40 @@ msgstr "Anónimo"
 msgid "All players"
 msgstr "Todos los jugadores"
 
+#: ../templates/players.html:36 ../templates/winners.html:6
+msgid "Tournament winners"
+msgstr "Ganadores de torneo"
+
+#: ../templates/players.html:37 ../templates/shields.html:6
+msgid "Tournament shields"
+msgstr "Escudos de torneo"
+
 #: ../templates/profile.html:13
 #, python-format
 msgid "%(count)s game"
 msgid_plural "%(count)s games"
 msgstr[0] "%(count)spartida"
 msgstr[1] "%(count)spartidas"
+
+#: ../templates/profile.html:40
+msgid "Watch games"
+msgstr "Ver partidas"
+
+#: ../templates/profile.html:42
+msgid "Challenge to a game"
+msgstr "Retar a una partida"
+
+#: ../templates/profile.html:45
+msgid "Import game"
+msgstr "Importar partida"
+
+#: ../templates/profile.html:48
+msgid "Export games"
+msgstr "Exportar partidas"
+
+#: ../templates/profile.html:51
+msgid "Lichess profile"
+msgstr "Perfil en Lichess"
 
 #: ../templates/template.html:17
 msgid "Tv"
@@ -98,8 +126,8 @@ msgid "Analysis"
 msgstr "Análisis"
 
 #: ../templates/template.html:23
-msgid "Learn"
-msgstr "Aprender"
+msgid "Variants"
+msgstr "Variantes"
 
 #: ../templates/template.html:29
 msgid "Login with Lichess"

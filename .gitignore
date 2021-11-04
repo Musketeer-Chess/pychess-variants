@@ -12,6 +12,7 @@ game.json
 user.json
 crosstable.json
 highscore.json
+tournament*.json
 yarn.lock
 /*.py
 /*.sh
@@ -20,3 +21,6 @@ yarn.lock
 *.mo
 .env
 *.DS_Store
+yarn-error.log
+.idea/
+

@@ -1,3 +1,22 @@
+import { VNode } from "snabbdom/vnode";
+
+import * as cg from "chessgroundx/types";
+
+export function downloadPgnText(filename: string) {
+    const text = (document.getElementById('pgntext') as HTMLInputElement).value;
+
+    const element = document.createElement('a');
+    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+    element.setAttribute('download', filename);
+
+    element.style.display = 'none';
+    document.body.appendChild(element);
+
+    element.click();
+
+    document.body.removeChild(element);
+}
+
 export function getDocumentData(name: string) {
     const elm = document.getElementById('pychess-variants');
     if (elm) {
@@ -7,9 +26,11 @@ export function getDocumentData(name: string) {
     }
 }
 
-export function getPieceImageUrl (role, color) {
-    // console.log('getPieceImageUrl()', role, color);
-    const el = document.querySelector(`piece.${role}.${color}`) as HTMLElement;
+export function getPieceImageUrl (role: cg.Role, color: cg.Color, side: string): string {
+    // Analysis drop move suggestion rendering needs piece images urls in chessground
+    // We can use current variant .css to find appropriate images.
+
+    const el = document.querySelector(`piece.${color}.${role}.${side}`) as HTMLElement;
     if (el) {
         const image = window.getComputedStyle(el, null).getPropertyValue("background-image");
         if (image) {
@@ -17,11 +38,21 @@ export function getPieceImageUrl (role, color) {
             if (url) return url.slice(url.indexOf('/static'));
         }
     }
+    // In Kyoto Shogi not all droppable pieces are rendered in the pockets
+    // because they may be dropped with flipped side as well. To solve this problem
+    // we will construct piece image url from unprotmoted piece urls here.
+    const kyotoPromotedPieceRoles = ['pp-piece', 'pl-piece', 'pn-piece', 'ps-piece'];
+    const idx = kyotoPromotedPieceRoles.indexOf(role);
+    if (idx !== -1) {
+        const unpromoted = getPieceImageUrl(role.slice(1) as cg.Role, color, side);
+        const kyotoPromotedPieceNames = ['HI', 'TO', 'KI', 'KA'];
+        return unpromoted.slice(0, unpromoted.lastIndexOf('/') + 2) + kyotoPromotedPieceNames[idx] + '.svg'
+    }
     return '/static/images/pieces/merida/';
 }
 
-export function debounce(callback, wait) {
-    let timeout;
+export function debounce(callback: any, wait: number) {
+    let timeout: ReturnType<typeof setTimeout>;
     return function() {
         const context = this, args = arguments;
         clearTimeout(timeout);
@@ -29,17 +60,17 @@ export function debounce(callback, wait) {
     };
 }
 
-export function getCookie(name) {
+export function getCookie(name: string) {
     const cookies = document.cookie.split(';');
     for(let i = 0; i < cookies.length; i++) {
         const pair = cookies[i].trim().split('=');
-        if(pair[0] == name)
+        if(pair[0] === name)
             return pair[1];
     }
     return "";
 }
 
-export function setCookie(cname, cvalue, exdays) {
+export function setCookie(cname: string, cvalue: string, exdays: number) {
     const d = new Date();
     d.setTime(d.getTime() + (exdays*24*60*60*1000));
     const expires = "expires=" + d.toUTCString();
@@ -62,10 +93,10 @@ export function changeBoardCSS(assetUrl: string, family: string, cssFile: string
         if (!( rule instanceof CSSStyleRule)) {
             continue;
         }
-        if (rule.selectorText === `.${family} .cg-wrap`) {
+        if (rule.selectorText === `.${family} cg-board`) {
             // console.log("changeBoardCSS", family, cssFile, i)
             sheet.deleteRule(i)
-            const newRule = `.${family} .cg-wrap {background-image: url(${assetUrl}/images/board/${cssFile})}`;
+            const newRule = `.${family} cg-board {background-image: url(${assetUrl}/images/board/${cssFile})}`;
             // console.log(newRule);
             sheet.insertRule(newRule, i);
             break;
@@ -80,21 +111,23 @@ export function changePieceCSS(assetUrl: string, family: string, cssFile: string
         case "seirawan": cssLinkIndex += 1; break;
         case "makruk": cssLinkIndex += 2; break;
         case "sittuyin": cssLinkIndex += 3; break;
-        case "shogi": cssLinkIndex += 4; break;
-        case "kyoto": cssLinkIndex += 5; break;
-        case "xiangqi": cssLinkIndex += 6; break;
-        case "capa": cssLinkIndex += 7; break;
-        case "shako": cssLinkIndex += 8; break;
-        case "shogun": cssLinkIndex += 9; break;
-        case "janggi": cssLinkIndex += 10; break;
-        case "orda": cssLinkIndex += 11; break;
-        case "synochess": cssLinkIndex += 12; break;
-        case "hoppel": cssLinkIndex += 13; break;
-        case "dobutsu": cssLinkIndex += 14; break;
-        case "shinobi": cssLinkIndex += 15; break;
-        case "empire": cssLinkIndex += 16; break;
-        case "ordamirror": cssLinkIndex += 17; break;
-        case "musketeer": cssLinkIndex += 18; break;
+        case "asean": cssLinkIndex += 4; break;
+        case "shogi": cssLinkIndex += 5; break;
+        case "kyoto": cssLinkIndex += 6; break;
+        case "tori": cssLinkIndex += 7; break;
+        case "xiangqi": cssLinkIndex += 8; break;
+        case "capa": cssLinkIndex += 9; break;
+        case "shako": cssLinkIndex += 10; break;
+        case "shogun": cssLinkIndex += 11; break;
+        case "janggi": cssLinkIndex += 12; break;
+        case "orda": cssLinkIndex += 13; break;
+        case "synochess": cssLinkIndex += 14; break;
+        case "hoppel": cssLinkIndex += 15; break;
+        case "dobutsu": cssLinkIndex += 16; break;
+        case "shinobi": cssLinkIndex += 17; break;
+        case "empire": cssLinkIndex += 18; break;
+        case "ordamirror": cssLinkIndex += 19; break;
+        case "musketeer": cssLinkIndex += 20; break;
         default: throw "Unknown piece family " + family;
     }
     const newUrl = `${assetUrl}/piece/${family}/${cssFile}.css`;
@@ -102,10 +135,10 @@ export function changePieceCSS(assetUrl: string, family: string, cssFile: string
     changeCSS(cssLinkIndex, newUrl);
 }
 
-export function bind(eventName: string, f: (e: Event) => void, redraw) {
+export function bind(eventName: string, f: (e: Event) => void, redraw: null | (() => void)) {
     return {
-        insert(vnode) {
-            vnode.elm.addEventListener(eventName, e => {
+        insert(vnode: VNode) {
+            vnode.elm?.addEventListener(eventName, (e: Event) => {
                 const res = f(e);
                 if (redraw) redraw();
                 return res;

@@ -11,6 +11,7 @@ from index import index, robots, select_lang
 from wsl import lobby_socket_handler
 from wsr import round_socket_handler
 from wst import tournament_socket_handler
+from twitch import twitch
 
 
 get_routes = (
@@ -30,11 +31,16 @@ get_routes = (
     ("/editor/{variant}", index),
     ("/editor/{variant}/{fen}", index),
     (r"/{gameId:\w{8}}", index),
+    (r"/{gameId:\w{8}}/{player:player[1-2]}", index),
     (r"/embed/{gameId:\w{8}}", index),
     ("/tournaments", index),
     ("/tournaments/new", index),
+    (r"/tournaments/{tournamentId:\w{8}}/edit", index),
+    ("/tournaments/shields", index),
+    ("/tournaments/winners", index),
     (r"/tournament/{tournamentId:\w{8}}", index),
     (r"/tournament/{tournamentId:\w{8}}/pause", index),
+    (r"/tournament/{tournamentId:\w{8}}/cancel", index),
     ("/@/{profileId}", index),
     ("/@/{profileId}/tv", index),
     ("/@/{profileId}/challenge", index),
@@ -47,8 +53,8 @@ get_routes = (
     ("/patron/thanks", index),
     ("/news", index),
     ("/news/{news_item}", index),
-    ("/variant", index),
-    ("/variant/{variant}", index),
+    ("/variants", index),
+    ("/variants/{variant}", index),
     ("/wsl", lobby_socket_handler),
     ("/wsr", round_socket_handler),
     ("/wst", tournament_socket_handler),
@@ -84,6 +90,7 @@ post_routes = (
     ("/api/bot/game/{gameId}/move/{move}", bot_move),
     ("/api/challenge/{username}", challenge_create),
     (r"/invite/accept/{gameId:\w{8}}", index),
+    (r"/invite/accept/{gameId:\w{8}}/{player:player[1-2]}", index),
     (r"/invite/cancel/{gameId:\w{8}}", cancel_invite),
     ("/api/challenge/{challengeId}/accept", challenge_accept),
     ("/api/challenge/{challengeId}/decline", challenge_decline),
@@ -96,4 +103,6 @@ post_routes = (
     ("/translation/select", select_lang),
     ("/import", import_game),
     ("/tournaments/arena", index),
+    (r"/tournament/{tournamentId:\w{8}}/edit", index),
+    ("/twitch", twitch),
 )

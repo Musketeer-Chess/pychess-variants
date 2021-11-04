@@ -16,11 +16,12 @@ from newid import id8
 from server import make_app
 from user import User
 from tournament import Tournament
-from tournaments import insert_tournament_to_db, new_tournament
+from tournaments import upsert_tournament_to_db, new_tournament
+from draw import draw
 from arena import ArenaTournament
 from rr import RRTournament
 from swiss import SwissTournament
-from utils import draw, play_move
+from utils import play_move
 # from misc import timeit
 
 PERFS = {variant: DEFAULT_PERF for variant in VARIANTS}
@@ -63,6 +64,12 @@ class TestTournament(Tournament):
             return
 
         if self.system == ARENA:
+            if random.choice((True, False)):
+                game.berserk("white")
+
+            if random.choice((True, False)):
+                game.berserk("black")
+
             await asyncio.sleep(random.choice((0, 0.1, 0.3, 0.5, 0.7)))
 
         game.status = STARTED
@@ -74,7 +81,7 @@ class TestTournament(Tournament):
                 if game.board.ply == ply or game.board.ply > 60:
                     player = game.wplayer if ply % 2 == 0 else game.bplayer
                     if game.board.ply > 60:
-                        response = await draw(self.app["games"], {"gameId": game.id}, agreement=True)
+                        response = await draw(game, cur_player.username, agreement=True)
                     else:
                         response = await game.game_ended(player, "resign")
                     if opp_player.title != "TEST":
@@ -134,14 +141,14 @@ async def create_arena_test(app):
     await app["db"].tournament_player.delete_many({"tid": tid})
     await app["db"].tournament_pairing.delete_many({"tid": tid})
 
-    tournament = ArenaTestTournament(app, tid, variant="crazyhouse", name="First zh960 Arena", chess960=True, before_start=5, minutes=20, created_by="PyChess")
+    tournament = ArenaTestTournament(app, tid, variant="crazyhouse", name="First zh960 Arena", chess960=True, base=1, before_start=0.2, minutes=20, created_by="PyChess")
 #    tournament = SwissTestTournament(app, tid, variant="makpong", name="First Makpong Swiss", before_start=0.1, rounds=7, created_by="PyChess")
 #    tournament = RRTestTournament(app, tid, variant="makpong", name="First Makpong RR", before_start=0.1, rounds=7, created_by="PyChess")
     app["tournaments"][tid] = tournament
     app["tourneysockets"][tid] = {}
     app["tourneychat"][tid] = collections.deque([], 100)
 
-    await insert_tournament_to_db(tournament, app)
+    await upsert_tournament_to_db(tournament, app)
 
 #    await tournament.join_players(6)
     await tournament.join_players(19)

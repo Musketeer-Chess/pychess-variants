@@ -11,15 +11,16 @@ try:
 except ImportError:
     print("No pyffishm module installed!")
 
-from broadcast import lobby_broadcast
+from broadcast import lobby_broadcast, round_broadcast
 from clock import Clock
 from compress import encode_moves, R2C
 from const import CREATED, STARTED, ABORTED, MATE, STALEMATE, DRAW, FLAG, CLAIM, \
     INVALIDMOVE, VARIANT_960_TO_PGN, LOSERS, VARIANTEND, GRANDS, CASUAL, RATED, \
-    IMPORTED, HIGHSCORE_MIN_GAMES
+    IMPORTED, HIGHSCORE_MIN_GAMES, variant_display_name, MAX_CHAT_LINES
 from convert import grand2zero, uci2usi, mirror5, mirror9
 from fairy import FairyBoard, BLACK, WHITE
 from glicko2.glicko2 import gl2
+from draw import reject_draw
 from settings import URI
 from spectators import spectators
 
@@ -52,6 +53,12 @@ class Game:
         self.chess960 = chess960
         self.create = create
 
+        self.browser_title = "%s • %s vs %s" % (
+            variant_display_name(self.variant + ("960" if self.chess960 else "")).title(),
+            self.wplayer.username,
+            self.bplayer.username
+        )
+
         # rating info
         self.white_rating = wplayer.get_rating(variant, chess960)
         self.wrating = "%s%s" % self.white_rating.rating_prov
@@ -78,7 +85,7 @@ class Game:
         self.spectators = set()
         self.draw_offers = set()
         self.rematch_offers = set()
-        self.messages = collections.deque([], 200)
+        self.messages = collections.deque([], MAX_CHAT_LINES)
         self.date = datetime.now(timezone.utc)
 
         self.ply_clocks = [{
@@ -153,7 +160,7 @@ class Game:
         self.byoyomi_period = byoyomi_period
 
         # Remaining byoyomi periods by players
-        self.byoyomi_periods = [byoyomi_period, byoyomi_period]
+        self.byoyomi_periods = {"white": byoyomi_period, "black": byoyomi_period}
 
         # On page refresh we have to add extra byoyomi times gained by current player to report correct clock time
         # We adjust this in "byoyomi" messages in wsr.py
@@ -183,9 +190,21 @@ class Game:
         if not self.wplayer.bot:
             self.wplayer.game_in_progress = self.id
 
+        if self.tournamentId is not None:
+            self.wberserk = False
+            self.bberserk = False
+
     @staticmethod
     def create_board(variant, initial_fen, chess960, count_started):
         return FairyBoard(variant, initial_fen, chess960, count_started)
+
+    def berserk(self, color):
+        if color == "white" and not self.wberserk:
+            self.wberserk = True
+            self.ply_clocks[0]["white"] = self.base * 1000 * 30
+        elif color == "black" and not self.bberserk:
+            self.bberserk = True
+            self.ply_clocks[0]["black"] = self.base * 1000 * 30
 
     async def play_move(self, move, clocks=None, ply=None):
         self.stopwatch.stop()
@@ -202,10 +221,10 @@ class Game:
         cur_player = self.bplayer if self.board.color == BLACK else self.wplayer
         opp_player = self.wplayer if self.board.color == BLACK else self.bplayer
 
-        if self.board.count_started <= 0:
-            # Move cancels draw offer
-            # Except in manual counting, since it is a permanent draw offer
-            self.draw_offers.discard(opp_player.username)
+        # Move cancels draw offer
+        response = reject_draw(self, opp_player.username)
+        if response is not None:
+            await round_broadcast(self, self.app["users"], response, full=True)
 
         cur_time = monotonic()
         # BOT players doesn't send times used for moves
@@ -256,12 +275,13 @@ class Game:
                 self.update_status()
 
                 # Stop manual counting when the king is bared
-                if self.board.count_started > 0:
+                if self.board.count_started != 0:
                     board_state = self.board.fen.split()[0]
                     white_pieces = sum(1 for c in board_state if c.isupper())
                     black_pieces = sum(1 for c in board_state if c.islower())
                     if white_pieces <= 1 or black_pieces <= 1:
-                        self.stop_manual_count()
+                        if self.board.count_started > 0:
+                            self.stop_manual_count()
                         self.board.count_started = 0
 
                 if self.status > STARTED:
@@ -367,6 +387,10 @@ class Game:
 
             if with_clocks:
                 new_data["clocks"] = self.ply_clocks
+
+            if self.tournamentId is not None:
+                new_data["wb"] = self.wberserk
+                new_data["bb"] = self.bberserk
 
             if self.manual_count:
                 if self.board.count_started > 0:
@@ -544,7 +568,7 @@ class Game:
                     self.status = STALEMATE
                     # print(self.result, "stalemate")
 
-        elif self.variant in ('makruk', 'makpong', 'cambodian', 'sittuyin'):
+        elif self.variant in ('makruk', 'makpong', 'cambodian', 'sittuyin', 'asean'):
             parts = self.board.fen.split()
             if parts[3].isdigit():
                 counting_limit = int(parts[3])
@@ -691,6 +715,9 @@ class Game:
         if self.result == "*":
             if reason == "abort":
                 result = "*"
+            elif self.variant == "janggi" and self.wsetup and reason == "flag":
+                # In Janggi game the second player (red) failed to do the setup phase in time
+                result = "1-0"
             else:
                 if reason == "flag":
                     w, b = self.board.insufficient_material()
@@ -749,7 +776,7 @@ class Game:
             crosstable = self.crosstable if self.status > STARTED else ""
 
         if self.byoyomi:
-            byoyomi_periods = self.byoyomi_periods
+            byoyomi_periods = (self.byoyomi_periods["white"], self.byoyomi_periods["black"])
         else:
             byoyomi_periods = ""
 

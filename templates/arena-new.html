@@ -4,15 +4,18 @@
     <main class="page-small">
         <div class="tour__form box box-pad">
             <h1>Create a new tournament</h1>
+            {% if edit %}
+            <form method="post" class="form3" action="/tournament/{{ tournamentid }}/edit">
+            {% else %}
             <form method="post" class="form3" action="/tournaments/arena">
+            {% endif %}
                 <div class="form-group">
                     <label class="form-label" for="form3-name">Name</label>
                     <div>
-                        <input id="form3-name" name="name" value="gbtami" class="form-control" minlength="2" maxlength="30" /> Arena
+                        <input id="form3-name" name="name" value="{{ tournamentname }}" class="form-control" minlength="2" maxlength="30" />
                         <br />
                         <small class="form-help">Pick a very safe name for the tournament.
-                            <br />Anything even slightly inappropriate could get your account closed.
-                            <br />Leave empty to name the tournament after a notable chess player.
+                            <br />Leave empty to name the tournament after a notable chess player (Not implemented on pychess atm!).
                         </small>
                     </div>
                 </div>
@@ -21,19 +24,18 @@
                         <div>
                             <label class="form-label" for="form3-rated">Rated</label>
                             <span class="form-check-input">
-                                <input id="form3-rated" name="rated" value="true" type="checkbox" class="form-control cmn-toggle" checked="checked"/>
+                                <input id="form3-rated" name="rated" value="1" type="checkbox" class="form-control cmn-toggle" {% if rated %}checked{% endif %}/>
                             </span>
                         </div>
                         <small class="form-help">Games are rated
                             <br />and impact players ratings
                         </small>
                     </div>
-                    <input type="hidden" name="rated" value="false" />
                     <div class="form-group form-half">
                         <label class="form-label" for="form3-variant">Variant</label>
                         <select id="form3-variant" name="variant" class="form-control">
                             {% for key in variants %}
-                            <option value="{{ key }}"{% if key=="chess" %} selected="selected"{% endif %}>{{ variant_display_name(key).title() }}</option>
+                            <option value="{{ key }}"{% if key=="{{ variant }}" %} selected="selected"{% endif %}>{{ variant_display_name(key).title() }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -187,8 +189,13 @@
                 </div>
 
                 <div class="form-actions">
+                {% if edit %}
+                    <a href="/tournament/{{ tid }}/cancel">Cancel tournament</a>
+                    <button type="submit" data-icon="x" class="submit button text">Save</button>
+                {% else %}
                     <a href="/tournaments">Cancel</a>
                     <button type="submit" data-icon="x" class="submit button text">Create a new tournament</button>
+                {% endif %}
                 </div>
             </form>
         </div>
